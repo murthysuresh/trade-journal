@@ -24,6 +24,8 @@ import { executionHash, newId, nowIso } from "./ids";
 import { getMultipliers, getJournalDefaults, getTimeZone } from "./settings";
 import { rebuildAccount } from "./rebuild";
 import { orderNinjaTraderFills } from "./ninjatrader-order";
+import { fxcmCommission } from "./fxcm-commission";
+import { matchesRule } from "@/lib/journal-defaults";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const FORMAT = "ninjatrader";
@@ -232,8 +234,14 @@ function planImport(
         reportedFee: input.reportedFee,
       },
     };
+    const hasConfiguredFeeRule = defaults.feeRules.some((rule) =>
+      matchesRule(rule, accountId, row.symbol),
+    );
     const effectiveFee =
-      input.reportedFee ?? defaultFee(row.fee, row.quantity, accountId, row.symbol, defaults);
+      input.reportedFee ??
+      (hasConfiguredFeeRule
+        ? defaultFee(row.fee, row.quantity, accountId, row.symbol, defaults)
+        : (fxcmCommission(row.symbol, row.quantity, account.currency) ?? row.fee));
     if (input.reportedFee === undefined) missingFees++;
     const fill: Execution = {
       ...row,

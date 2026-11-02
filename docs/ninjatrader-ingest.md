@@ -32,10 +32,15 @@ Send JSON with these fields:
 The execution ID must be the stable NinjaTrader execution/fill ID, not an order
 ID shared by multiple partial fills.
 
-When `commission` is omitted, the journal stores a fee of zero. The endpoint
-does not estimate fees from price, quantity, instrument, or contract size, and
-does not invent FX conversions, quantity units, or contract multipliers. The
-quantity is stored in the units supplied by NinjaTrader.
+When `commission` is omitted, recognized FXCM commission-based forex pairs use
+the published per-side schedule, pro-rated by quantity: USD 5 per 100,000 for
+EUR/USD, USD/CAD, GBP/USD, USD/JPY, and USD/CHF in USD accounts; CAD 7 per
+100,000 for those pairs in CAD accounts; USD 7/CAD 9 per 100,000 for the
+published second schedule. Explicit commissions always take precedence.
+Unsupported pairs, currencies, and non-commission-based FXCM accounts are left
+at their existing fee (normally zero); no fee is estimated from price or spread.
+The endpoint does not invent FX conversions, quantity units, or contract
+multipliers. The quantity is stored in the units supplied by NinjaTrader.
 Futures are identified from the instrument name, but their multiplier must
 already be configured in the journal Settings. Unsupported NinjaTrader fields
 such as order ID, strategy name, ATM name, and account balances are ignored and
