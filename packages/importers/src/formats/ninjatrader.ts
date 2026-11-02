@@ -3,6 +3,70 @@ import type { ImportFormat, ImportedExecution } from "../types";
 import { rowsToFills, type FillsColumnMap } from "./fills";
 import { parseMoney } from "../numbers";
 
+export interface NinjaTraderExecutionInput {
+  instrument: string;
+  side: "buy" | "sell";
+  quantity: number;
+  price: number;
+  fee: number;
+  executedAt: string;
+  account: string;
+  connection: string;
+  executionId?: string;
+  effect?: "entry" | "exit" | "reverse";
+  sequence?: number;
+  reportedFee?: number;
+  /** Used by the file parser for no-ID occurrence identities. */
+  id?: string;
+  order?: number;
+}
+
+const isFuturesInstrument = (instrument: string): boolean =>
+  / \d{2}-\d{2,4}$/.test(instrument) || /^[A-Z][A-Z0-9]*[FGHJKMNQUVXZ]\d{1,4}$/.test(instrument);
+
+/** Normalize an API or file row to the shared NinjaTrader execution model. */
+export const normalizeNinjaTraderExecution = (
+  input: NinjaTraderExecutionInput,
+): ImportedExecution => {
+  const instrument = input.instrument.trim().replace(/\s+/g, " ").toUpperCase();
+  const symbol = instrument.split(" ")[0]!.trim().toUpperCase();
+  const group = `ninjatrader:${JSON.stringify([input.connection, input.account, instrument])}`;
+  const signature = JSON.stringify([
+    symbol,
+    input.side,
+    input.quantity,
+    input.price,
+    input.executedAt,
+  ]);
+  const id =
+    input.id ?? (input.executionId ? `execution:${input.executionId}` : `fill:${signature}:0`);
+  return {
+    symbol,
+    side: input.side,
+    quantity: input.quantity,
+    price: input.price,
+    fee: input.fee,
+    executedAt: input.executedAt,
+    assetClass: isFuturesInstrument(instrument) ? "futures" : undefined,
+    importMetadata: {
+      id,
+      group,
+      order: input.order ?? 0,
+      preserveFee: input.reportedFee !== undefined,
+    },
+    ninjaTrader: {
+      sourceKey: JSON.stringify([input.connection, input.account]),
+      account: input.account,
+      connection: input.connection,
+      instrument,
+      executionId: input.executionId,
+      effect: input.effect,
+      sequence: input.sequence,
+      reportedFee: input.reportedFee,
+    },
+  };
+};
+
 const columns: FillsColumnMap = {
   symbol: ["instrument"],
   side: ["action"],
@@ -101,30 +165,24 @@ export const ninjatrader: ImportFormat = {
           );
         identities.set(key, signature);
       }
-      if (
-        / \d{2}-\d{2,4}$/.test(instrument) ||
-        /^[A-Z][A-Z0-9]*[FGHJKMNQUVXZ]\d{1,4}$/.test(instrument)
-      ) {
-        fill.assetClass = "futures";
-        futures.add(fill.symbol);
-      }
-      fill.importMetadata = {
-        id,
-        group,
-        order: executions.length,
-        preserveFee: pick(row, ["commission"]) !== undefined,
-      };
-      fill.ninjaTrader = {
-        sourceKey: JSON.stringify([connection, account]),
+      const normalized = normalizeNinjaTraderExecution({
+        instrument,
+        side: fill.side,
+        quantity: fill.quantity,
+        price: fill.price,
+        fee: fill.fee,
+        executedAt: fill.executedAt,
         account,
         connection,
-        instrument,
         executionId,
         effect,
         sequence,
         reportedFee: pick(row, ["commission"]) === undefined ? undefined : fill.fee,
-      };
-      executions.push(fill);
+        id,
+        order: executions.length,
+      });
+      if (normalized.assetClass === "futures") futures.add(normalized.symbol);
+      executions.push(normalized);
     }
     const warnings: string[] = [];
     if (sourceAccounts.size > 1)

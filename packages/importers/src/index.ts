@@ -8,4 +8,8 @@ export { makeFillsFormat, parseSide, type FillsFormatSpec } from "./formats/fill
 export { parseHistory, type HistoryParseOptions } from "./formats/history";
 export { xtbWorkbookToStatement } from "./formats/xtb";
 export { HYPERLIQUID_FORMAT_ID } from "./formats/hyperliquid";
+export {
+  normalizeNinjaTraderExecution,
+  type NinjaTraderExecutionInput,
+} from "./formats/ninjatrader";
 export { positionFillProblem } from "./position-fills";
