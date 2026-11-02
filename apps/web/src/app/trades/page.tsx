@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import Loading from "@/app/loading";
 import { postJson, useApi } from "@/lib/use-api";
-import { cn, fmtDuration, fmtMoney, fmtNumber, fmtPercent } from "@/lib/utils";
+import { cn, fmtDuration, fmtMoney, fmtNumber, fmtPercent, fmtPrice } from "@/lib/utils";
 
 interface TradeRow {
   key: string;
@@ -156,9 +156,11 @@ function Trades() {
         id: "avgEntry",
         accessorKey: "avgEntry",
         header: "Entry",
-        cell: ({ getValue }) => (
+        cell: ({ row, getValue }) => (
           <span className="tnum">
-            <MonetaryValue>{fmtNumber(getValue<number>())}</MonetaryValue>
+            <MonetaryValue>
+              {fmtPrice(getValue<number>(), row.original.symbol, row.original.assetClass)}
+            </MonetaryValue>
           </span>
         ),
       },
@@ -166,10 +168,12 @@ function Trades() {
         id: "avgExit",
         accessorKey: "avgExit",
         header: "Exit",
-        cell: ({ getValue }) => (
+        cell: ({ row, getValue }) => (
           <span className="tnum">
             <MonetaryValue>
-              {getValue<number | null>() === null ? "–" : fmtNumber(getValue<number>()!)}
+              {getValue<number | null>() === null
+                ? "–"
+                : fmtPrice(getValue<number>()!, row.original.symbol, row.original.assetClass)}
             </MonetaryValue>
           </span>
         ),

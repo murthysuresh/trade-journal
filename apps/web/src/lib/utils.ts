@@ -29,6 +29,19 @@ export const fmtNumber = (value: number, digits = 2): string => {
   return formatter.format(value);
 };
 
+/** Format a trade price using the instrument's normal quote precision. */
+export const fmtPrice = (
+  value: number,
+  symbol: string,
+  assetClass: string | null | undefined,
+): string => {
+  if (assetClass === "forex") {
+    return fmtNumber(value, /JPY|6J$/i.test(symbol) ? 3 : 5);
+  }
+  if (assetClass === "crypto") return fmtNumber(value, 8);
+  return fmtNumber(value, 2);
+};
+
 export const fmtPercent = (value: number | null, digits = 1): string =>
   value === null ? "–" : `${(value * 100).toFixed(digits)}%`;
 
