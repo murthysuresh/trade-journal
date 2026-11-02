@@ -340,7 +340,12 @@ function planImport(
       );
       continue;
     }
-    if (!equalFee(before.reportedFee, after.reportedFee)) {
+    const priorFeeWasUnavailable = before.reportedFee === undefined || before.reportedFee === 0;
+    const incomingFeeWasUnavailable = after.reportedFee === undefined;
+    if (
+      !equalFee(before.reportedFee, after.reportedFee) &&
+      !(priorFeeWasUnavailable && incomingFeeWasUnavailable)
+    ) {
       if (!after.executionId) {
         conflicts.add(
           "Fees changed on fills without execution IDs. Reconcile the complete history separately; occurrence numbers cannot reliably identify corrected fills.",
@@ -393,7 +398,7 @@ function planImport(
     );
   if (missingFees)
     warnings.add(
-      `${missingFees} rows omit commission. The preview uses your configured default fees, or zero when none are configured.`,
+      `${missingFees} rows omit commission. The preview uses the configured fee rule, the FXCM schedule when supported, or zero when neither is available.`,
     );
   const multiplierRows = [
     ...new Set(parsed.executions.filter((e) => e.assetClass === "futures").map((e) => e.symbol)),

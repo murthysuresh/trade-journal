@@ -212,7 +212,7 @@ describe("POST /api/ingest/ninjatrader", () => {
 
   it("applies the published FXCM USD commission pro rata when commission is missing", async () => {
     const response = await POST(
-      request(fill({ instrument: "EURUSD", quantity: 10_000, commission: undefined })),
+      request(fill({ instrument: "EURUSD", quantity: 10_000, commission: 0 })),
     );
     expect(response.status, await response.clone().text()).toBe(200);
     expect(db.select().from(executions).get()).toMatchObject({ fee: 0.5 });

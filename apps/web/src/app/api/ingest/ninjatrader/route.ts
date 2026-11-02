@@ -179,7 +179,9 @@ const toImport = (body: NinjaTraderExecutionBody): ParsedImport => {
     executionId: body.executionId,
     effect: body.entryExit?.toLowerCase() as NinjaTraderExecutionInput["effect"],
     sequence: body.sequence,
-    ...(body.commission === undefined ? {} : { reportedFee: body.commission }),
+    ...(body.commission === undefined || body.commission === 0
+      ? {}
+      : { reportedFee: body.commission }),
   });
   return { format: "ninjatrader", executions: [row], skippedRows: 0, warnings: [], errors: [] };
 };

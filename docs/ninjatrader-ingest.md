@@ -32,7 +32,7 @@ Send JSON with these fields:
 The execution ID must be the stable NinjaTrader execution/fill ID, not an order
 ID shared by multiple partial fills.
 
-When `commission` is omitted, recognized FXCM commission-based forex pairs use
+When `commission` is omitted or sent as zero, recognized FXCM commission-based forex pairs use
 the published per-side schedule, pro-rated by quantity: USD 5 per 100,000 for
 EUR/USD, USD/CAD, GBP/USD, USD/JPY, and USD/CHF in USD accounts; CAD 7 per
 100,000 for those pairs in CAD accounts; USD 7/CAD 9 per 100,000 for the
