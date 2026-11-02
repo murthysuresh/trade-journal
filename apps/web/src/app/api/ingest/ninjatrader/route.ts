@@ -16,7 +16,7 @@ interface NinjaTraderExecutionBody {
   action: "Buy" | "Sell";
   quantity: number;
   price: number;
-  commission: number;
+  commission?: number;
   executedAt: string;
   account: string;
   connection: string;
@@ -114,10 +114,11 @@ const parseBody = (value: unknown): NinjaTraderExecutionBody => {
     "price must be a finite number.",
   );
   requireValue(
-    typeof value.commission === "number" &&
-      Number.isFinite(value.commission) &&
-      value.commission >= 0,
-    "commission must be a finite non-negative number.",
+    value.commission === undefined ||
+      (typeof value.commission === "number" &&
+        Number.isFinite(value.commission) &&
+        value.commission >= 0),
+    "commission must be a finite non-negative number when provided.",
   );
   requireValue(
     value.entryExit === undefined ||
@@ -139,7 +140,7 @@ const parseBody = (value: unknown): NinjaTraderExecutionBody => {
     action: value.action,
     quantity: value.quantity,
     price: value.price,
-    commission: value.commission,
+    ...(value.commission === undefined ? {} : { commission: value.commission }),
     executedAt: parseTimestamp(value.executedAt),
     account: text(value.account, "account"),
     connection: text(value.connection, "connection"),
@@ -171,14 +172,14 @@ const toImport = (body: NinjaTraderExecutionBody): ParsedImport => {
     side: body.action === "Buy" ? "buy" : "sell",
     quantity: body.quantity,
     price: body.price,
-    fee: body.commission,
+    fee: body.commission ?? 0,
     executedAt: body.executedAt,
     account: body.account,
     connection: body.connection,
     executionId: body.executionId,
     effect: body.entryExit?.toLowerCase() as NinjaTraderExecutionInput["effect"],
     sequence: body.sequence,
-    reportedFee: body.commission,
+    ...(body.commission === undefined ? {} : { reportedFee: body.commission }),
   });
   return { format: "ninjatrader", executions: [row], skippedRows: 0, warnings: [], errors: [] };
 };

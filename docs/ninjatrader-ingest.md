@@ -25,16 +25,17 @@ Send JSON with these fields:
 }
 ```
 
-`executionId`, `instrument`, `action`, `quantity`, `price`, `commission`,
-`executedAt`, `account`, and `connection` are required. `action` is `Buy` or
+`executionId`, `instrument`, `action`, `quantity`, `price`, `executedAt`,
+`account`, and `connection` are required. `commission` is optional. `action` is `Buy` or
 `Sell`; `entryExit` is optional and may be `Entry`, `Exit`, or `Reverse`;
 `sequence` is an optional non-negative integer used to resolve same-time fills.
 The execution ID must be the stable NinjaTrader execution/fill ID, not an order
 ID shared by multiple partial fills.
 
-`commission` is required, including when the correct value is zero. The
-endpoint does not invent fees, FX conversions, quantity units, or contract
-multipliers. The quantity is stored in the units supplied by NinjaTrader.
+When `commission` is omitted, the journal stores a fee of zero. The endpoint
+does not estimate fees from price, quantity, instrument, or contract size, and
+does not invent FX conversions, quantity units, or contract multipliers. The
+quantity is stored in the units supplied by NinjaTrader.
 Futures are identified from the instrument name, but their multiplier must
 already be configured in the journal Settings. Unsupported NinjaTrader fields
 such as order ID, strategy name, ATM name, and account balances are ignored and

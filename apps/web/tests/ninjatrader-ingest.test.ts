@@ -197,11 +197,16 @@ describe("POST /api/ingest/ninjatrader", () => {
 
   it.each([
     ["missing offset", { executedAt: "2026-07-05T04:00:00" }],
-    ["missing commission", { commission: undefined }],
     ["unknown account", { account: "" }],
   ])("rejects %s without writing", async (_label, overrides) => {
     const response = await POST(request(fill(overrides)));
     expect(response.status).toBe(400);
     expect(db.select().from(executions).all()).toHaveLength(0);
+  });
+
+  it("accepts a fill without commission and leaves the fee at zero", async () => {
+    const response = await POST(request(fill({ commission: undefined })));
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(db.select().from(executions).get()).toMatchObject({ fee: 0 });
   });
 });
