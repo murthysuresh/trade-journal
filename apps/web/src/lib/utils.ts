@@ -35,8 +35,29 @@ export const fmtPrice = (
   symbol: string,
   assetClass: string | null | undefined,
 ): string => {
-  if (assetClass === "forex") {
-    return fmtNumber(value, /JPY|6J$/i.test(symbol) ? 3 : 5);
+  const normalizedSymbol = symbol.replace(/[\/_-]/g, "").toUpperCase();
+  const isForexInstrument =
+    assetClass === "forex" ||
+    (/^[A-Z]{6}$/.test(normalizedSymbol) &&
+      [
+        "USD",
+        "EUR",
+        "GBP",
+        "JPY",
+        "CHF",
+        "AUD",
+        "NZD",
+        "CAD",
+        "NOK",
+        "SEK",
+        "ZAR",
+        "SGD",
+        "HKD",
+      ].some(
+        (currency) => normalizedSymbol.startsWith(currency) || normalizedSymbol.endsWith(currency),
+      ));
+  if (isForexInstrument) {
+    return fmtNumber(value, /JPY|6J$/i.test(normalizedSymbol) ? 3 : 5);
   }
   if (assetClass === "crypto") return fmtNumber(value, 8);
   return fmtNumber(value, 2);

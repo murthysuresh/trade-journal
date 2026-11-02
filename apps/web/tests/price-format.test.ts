@@ -4,6 +4,7 @@ import { fmtPrice } from "../src/lib/utils";
 describe("fmtPrice", () => {
   it("keeps five decimal places for non-JPY forex instruments", () => {
     expect(fmtPrice(1.1766500000000006, "EURUSD", "forex")).toBe("1.17665");
+    expect(fmtPrice(1.1766500000000006, "EURUSD", null)).toBe("1.17665");
   });
 
   it("uses three decimal places for JPY forex instruments", () => {
