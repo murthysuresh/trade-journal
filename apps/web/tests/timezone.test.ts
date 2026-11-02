@@ -54,7 +54,7 @@ afterAll(() => {
 
 describe("statement and display timezones are independent", () => {
   it("preserves legacy import behavior when only the display timezone changes", async () => {
-    expect(getImportTimeZone()).toBe("UTC");
+    expect(getImportTimeZone()).toBe("America/Toronto");
     setSetting("timeZone", "Europe/Helsinki");
     expect(getImportTimeZone()).toBe("Europe/Helsinki");
     expect((await save({ timeZone: "America/Asuncion" })).status).toBe(200);

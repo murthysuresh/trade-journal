@@ -41,8 +41,8 @@ export const getCurrencyConversion = () => {
   return parseCurrencyConversion(JSON.parse(saved));
 };
 
-/** Journal display timezone (IANA), default UTC. */
-export const getTimeZone = (): string => getSetting("timeZone") ?? "UTC";
+/** Journal display timezone (IANA), default Toronto local time. */
+export const getTimeZone = (): string => getSetting("timeZone") ?? "America/Toronto";
 
 /** Preserve the legacy parsing default until a separate import zone is saved. */
 export const getImportTimeZone = (): string => getSetting("importTimeZone") ?? getTimeZone();
