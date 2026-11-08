@@ -130,6 +130,10 @@ execution-price chart. The second frame shows Donchian/HH7/F-stage context, CCI 
 ![Donchian, HH7, F-stage, CCI and execution evidence](ui-samples/parent-chart.jpg)
 
 Use **Hover details** for exact bar values and Ctrl + wheel to zoom all synchronized chart panels.
+The Hover details setting is stored in the browser, survives page reloads and new same-origin
+windows, and synchronizes between open tabs/windows. The shared crosshair shows its datetime label
+only on the lowest CCI panel; the two upper panels retain their price crosshair labels without
+repeating the datetime. Upper-panel detail popups likewise omit the shared datetime heading.
 The **Funnels** button preserves the previous research context when returning.
 
 ### Sample flow: use V5 parents on the Dashboard
@@ -392,7 +396,10 @@ synchronized panels from certified M15 evidence:
 
 The chart supports shared pan/zoom, optional hover details, three trading days of pre-entry context,
 one empty day after the last certified candle, and timed B0/B1/second-thrust research annotations.
-It also shows nearby eligible F-stage signals and visually distinguishes the selected trade.
+Hover details default on for a browser with no saved preference; changing the setting persists the
+choice for later trade windows. Synchronized movement keeps a single datetime crosshair label on
+the lowest panel instead of duplicating it in all three panels. The chart also shows nearby eligible
+F-stage signals and visually distinguishes the selected trade.
 
 Below the chart, **Execution evidence** lists every admitted fill's role, target stage, certified
 event time, quantity and price. When no certified candle can be linked, the page explains the gap
