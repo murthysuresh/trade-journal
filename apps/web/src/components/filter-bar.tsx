@@ -14,6 +14,7 @@ import {
 import { FilterFields } from "./filter-fields";
 import { SlidersHorizontal } from "lucide-react";
 import { AccountSelector } from "./account-selector";
+import type { ReportPopulationKind } from "@/lib/report-population";
 export const useFilters = () => {
   const params = useSearchParams();
   const { data } = useApi<{ timeZone: string }>("/api/settings");
@@ -43,7 +44,15 @@ export const useFilters = () => {
   }, [params, range, timeZone]);
 };
 export type Filters = ReturnType<typeof useFilters>;
-export function FilterBar({ title, actions }: { title: string; actions?: React.ReactNode }) {
+export function FilterBar({
+  title,
+  actions,
+  population = "journal",
+}: {
+  title: string;
+  actions?: React.ReactNode;
+  population?: ReportPopulationKind;
+}) {
   const router = useRouter(),
     pathname = usePathname(),
     params = useSearchParams();
@@ -69,7 +78,7 @@ export function FilterBar({ title, actions }: { title: string; actions?: React.R
         <h1 className="mr-auto min-w-0 text-base font-semibold tracking-tight">{title}</h1>
         {showFilters && (
           <>
-            <AccountSelector />
+            {population === "journal" && <AccountSelector />}
             <div className="flex max-w-full shrink-0 items-center rounded-md border p-0.5">
               {["7d", "30d", "90d", "ytd", "all"].map((range) => (
                 <Button
@@ -124,10 +133,12 @@ export function FilterBar({ title, actions }: { title: string; actions?: React.R
             <DialogDescription className="journal-filter-description">
               Times use {filters.timeZone}. Dates use the closing day, or opening day for open
               trades. All selected conditions must match.
+              {population === "playback" &&
+                " Journal annotations, account filters, and risk-R fields are unavailable for certified playback parents."}
             </DialogDescription>
           </DialogHeader>
           <div className="journal-filter-body">
-            <FilterFields value={draft} onChange={setDraft} />
+            <FilterFields value={draft} onChange={setDraft} population={population} />
           </div>
           <div className="journal-filter-footer flex items-center justify-between gap-3">
             <Button

@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileUp, Landmark, PencilLine } from "lucide-react";
+import { Database, FileUp, Landmark, PencilLine } from "lucide-react";
 import { AccountPicker } from "@/components/account-picker";
 import { ManualTradeEntry } from "@/components/manual-trade-entry";
 import { FilterBar } from "@/components/filter-bar";
@@ -35,6 +35,7 @@ import {
 } from "@/lib/ai-import";
 import { XLSX_MAX_BYTES } from "@/lib/xlsx-import";
 import { Checkbox } from "@/components/ui/checkbox";
+import { V5AnalyticsImport } from "@/components/v5-analytics-import";
 
 interface BrokerInfo {
   id: string;
@@ -102,6 +103,10 @@ function ImportView() {
               <PencilLine className="mr-1.5 hidden h-4 w-4 min-[420px]:block" />
               Manual
             </TabsTrigger>
+            <TabsTrigger value="analytics" className="max-sm:px-2 max-sm:text-xs">
+              <Database className="mr-1.5 hidden h-4 w-4 min-[420px]:block" />
+              V5 analytics
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="file">
             <FileImport />
@@ -118,6 +123,9 @@ function ImportView() {
                 <ManualTradeEntry onSaved={() => router.push("/trades")} />
               </CardContent>
             </Card>
+          </TabsContent>
+          <TabsContent value="analytics">
+            <V5AnalyticsImport />
           </TabsContent>
         </Tabs>
       </div>

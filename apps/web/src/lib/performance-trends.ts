@@ -1,4 +1,5 @@
 import type { AnnotatedTrade } from "@luxalgo/journal-core";
+import type { ReportPopulationMeta } from "./report-population";
 
 export const ROLLING_TRADE_WINDOW = 20;
 export const MIN_TREND_POINTS = 8;
@@ -74,4 +75,5 @@ export interface PerformanceTrendsResponse {
   trends: PerformanceTrends;
   currencies: string[];
   timeZone: string;
+  population: ReportPopulationMeta;
 }

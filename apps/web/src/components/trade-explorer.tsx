@@ -20,6 +20,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { OptionSelect } from "./ui/option-select";
 import { Skeleton } from "./ui/skeleton";
+import { reportTradeHref } from "@/lib/report-population";
 
 const TradeScatter = dynamic(
   () => import("./charts/trade-scatter").then((module) => module.TradeScatter),
@@ -32,8 +33,6 @@ const TradeScatter = dynamic(
   },
 );
 const PAGE_SIZE = 25;
-const detailHref = (key: string) => `/trades/${encodeURIComponent(key)}`;
-
 export function TradeExplorer({ query }: { query: string }) {
   const { data, error, loading, refresh } = useApi<TradeExplorerResponse>(
     `/api/trade-explorer?${query}`,
@@ -69,6 +68,8 @@ export function TradeExplorer({ query }: { query: string }) {
       </div>
     );
   const currency = data.currencies[0] ?? "USD";
+  const playback = data.population.kind === "playback";
+  const pnlName = playback ? "Gross P&L" : "Net P&L";
   const excursion = x === "mae" || x === "mfe" || y === "mae" || y === "mfe";
   const blocked = (y !== "realizedR" || excursion) && data.currencies.length > 1;
   const xTitle =
@@ -79,7 +80,7 @@ export function TradeExplorer({ query }: { query: string }) {
         : `Estimated ${x.toUpperCase()} (${currency})`;
   const yTitle =
     y === "netPnl"
-      ? `Net P&L (${currency})`
+      ? `${pnlName} (${currency})`
       : y === "realizedR"
         ? "Realized R"
         : `Estimated ${y.toUpperCase()} (${currency})`;
@@ -130,7 +131,7 @@ export function TradeExplorer({ query }: { query: string }) {
               <tr key={point.key} className="border-b last:border-0">
                 <th scope="row" className="py-3 pr-3 font-normal">
                   <Link
-                    href={detailHref(point.key)}
+                    href={reportTradeHref(point.key)}
                     className="rounded underline underline-offset-4"
                   >
                     <span className="break-all font-medium">
@@ -184,17 +185,19 @@ export function TradeExplorer({ query }: { query: string }) {
           {data.timeZone}
         </p>
       </div>
-      <ReportMarketEstimates
-        points={data.points}
-        currencies={data.currencies}
-        onComplete={refresh}
-      />
+      {!playback && (
+        <ReportMarketEstimates
+          points={data.points}
+          currencies={data.currencies}
+          onComplete={refresh}
+        />
+      )}
       <div className="flex flex-wrap gap-2" aria-label="Scatter plot presets">
         {(
           [
             ["durationMinutes", "netPnl", "Holding time"],
-            ["mae", "netPnl", "MAE vs net P&L"],
-            ["mfe", "netPnl", "MFE vs net P&L"],
+            ["mae", "netPnl", `MAE vs ${pnlName}`],
+            ["mfe", "netPnl", `MFE vs ${pnlName}`],
             ["mae", "mfe", "MAE vs MFE"],
           ] as const
         ).map(([nextX, nextY, label]) => (
@@ -224,10 +227,14 @@ export function TradeExplorer({ query }: { query: string }) {
               </CardTitle>
               <p className="mt-2 text-xs text-muted-foreground">
                 {blocked
-                  ? `${data.points.length} closed trades`
-                  : `${points.length} of ${data.points.length} closed trades comparable`}{" "}
+                  ? `${data.points.length} completed ${playback ? "parents" : "trades"}`
+                  : `${points.length} of ${data.points.length} completed ${playback ? "parents" : "trades"} comparable`}{" "}
                 · One point per trade ·{" "}
-                {excursion ? "Gross excursion estimates; net P&L after fees" : "After fees"}
+                {playback
+                  ? "Gross before costs"
+                  : excursion
+                    ? "Gross excursion estimates; net P&L after fees"
+                    : "After fees"}
               </p>
             </div>
             <div className="flex w-full flex-wrap gap-3 sm:w-auto">
@@ -269,8 +276,8 @@ export function TradeExplorer({ query }: { query: string }) {
                     setPage(0);
                   }}
                 >
-                  <option value="netPnl">Net P&L</option>
-                  <option value="realizedR">Realized R</option>
+                  <option value="netPnl">{pnlName}</option>
+                  {!playback && <option value="realizedR">Realized R</option>}
                   <option value="mae">Estimated MAE</option>
                   <option value="mfe">Estimated MFE</option>
                 </OptionSelect>
@@ -320,16 +327,16 @@ export function TradeExplorer({ query }: { query: string }) {
                         <span aria-hidden="true" className="text-[var(--profit)]">
                           ●
                         </span>{" "}
-                        Positive net P&L
+                        Positive {playback ? "gross" : "net"} P&L
                       </span>
                       <span>
                         <span aria-hidden="true" className="text-[var(--loss)]">
                           ●
                         </span>{" "}
-                        Negative net P&L
+                        Negative {playback ? "gross" : "net"} P&L
                       </span>
                       <span>
-                        <span aria-hidden="true">●</span> Zero net P&L
+                        <span aria-hidden="true">●</span> Zero {playback ? "gross" : "net"} P&L
                       </span>
                     </span>
                   </div>
@@ -359,7 +366,7 @@ export function TradeExplorer({ query }: { query: string }) {
                         </div>
                         <div className="flex items-center gap-3">
                           <Link
-                            href={detailHref(selected.key)}
+                            href={reportTradeHref(selected.key)}
                             className="rounded text-sm underline underline-offset-4"
                           >
                             Open trade ↗

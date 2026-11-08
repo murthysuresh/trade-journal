@@ -21,12 +21,88 @@ import { handler, ok } from "@/server/api";
 import { getTimeZone, getCurrencyConversion } from "@/server/settings";
 import { currencyProjection } from "@/server/currency-conversion";
 import { queryTrades, type TradeFilters } from "@/server/trades-query";
+import { journalPopulation, queryPlaybackReport } from "@/server/report-population";
 
 /** The entire dashboard in one request. */
 export const GET = handler(async (request: Request) => {
   const url = new URL(request.url);
   const timeZone = getTimeZone();
   const filters: TradeFilters = readFilters(url.searchParams);
+
+  const playback = await queryPlaybackReport(url.searchParams, filters);
+  if (playback) {
+    const trades = playback.trades;
+    const initialBalance = 0;
+    const { metrics, days, equity } = computeOverview(trades, { timeZone, initialBalance });
+    const currency = playback.currencies[0] ?? "USD";
+    const today = dayKeyOf(new Date().toISOString(), timeZone);
+    const calendarYear = Number(url.searchParams.get("calYear") ?? today.slice(0, 4));
+    const calendarMonthNum = Number(url.searchParams.get("calMonth") ?? today.slice(5, 7));
+    const calendarPrefix = `${calendarYear}-${String(calendarMonthNum).padStart(2, "0")}`;
+    const calendarTrades = trades.filter(
+      (trade) =>
+        trade.status !== "open" &&
+        trade.closedAt &&
+        dayKeyOf(trade.closedAt, timeZone).startsWith(calendarPrefix),
+    );
+    return ok({
+      timeZone,
+      currencies: [currency],
+      currencyScope: {
+        currency,
+        sourceCurrencies: [currency],
+        converted: false,
+        monetary: true,
+        missingCurrencies: [],
+      },
+      currencyGroups: [],
+      accounts: playback.accounts,
+      playbooks: playback.playbooks,
+      population: playback.population,
+      metrics,
+      edgeScore: computeEdgeScore(metrics),
+      days,
+      dailyCumulative: dailyCumulativeFromDays(days),
+      equity,
+      calendar: calendarMonthFromDays(days, calendarYear, calendarMonthNum),
+      calendarCurrencies: [currency],
+      runningPnl: calendarRunningPnl(calendarTrades, timeZone),
+      buckets: {
+        symbol: bySymbol(trades).slice(0, 20),
+        tag: byTag(trades),
+        mistake: byMistake(trades),
+        playbook: byPlaybook(trades),
+        weekday: byWeekday(trades, timeZone),
+        hour: byHour(trades, timeZone),
+        duration: byDuration(trades),
+        direction: byDirection(trades),
+      },
+      openPositions: trades
+        .filter((trade) => trade.status === "open")
+        .map((trade) => ({
+          key: trade.key,
+          symbol: trade.symbol,
+          direction: trade.direction,
+          openedAt: trade.openedAt,
+          quantity: trade.openQuantity,
+          avgEntry: trade.avgEntry,
+          currency,
+        })),
+      recentTrades: trades
+        .filter((trade) => trade.status !== "open")
+        .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))
+        .slice(0, 10)
+        .map((trade) => ({
+          key: trade.key,
+          symbol: trade.symbol,
+          closedAt: trade.closedAt,
+          netPnl: trade.netPnl,
+          currency,
+          status: trade.status,
+        })),
+      initialBalance,
+    });
+  }
 
   const { trades: originalTrades } = queryTrades(filters);
   const accountRows = db.select().from(accounts).orderBy(asc(accounts.createdAt)).all();
@@ -83,6 +159,7 @@ export const GET = handler(async (request: Request) => {
         }),
     accounts: accountRows.map((a) => ({ id: a.id, name: a.name })),
     playbooks: db.select({ id: playbooks.id, name: playbooks.name }).from(playbooks).all(),
+    population: journalPopulation(originalTrades),
     metrics: currencyScope.monetary ? metrics : null,
     edgeScore: currencyScope.monetary ? computeEdgeScore(metrics) : null,
     days,

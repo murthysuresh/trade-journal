@@ -2,16 +2,28 @@
 
 import { useEffect, useRef } from "react";
 import * as echarts from "echarts/core";
-import { BarChart, LineChart } from "echarts/charts";
-import { AxisPointerComponent, GridComponent, TooltipComponent } from "echarts/components";
+import { BarChart, CandlestickChart, LineChart, ScatterChart } from "echarts/charts";
+import {
+  AxisPointerComponent,
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  MarkLineComponent,
+  TooltipComponent,
+} from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsOption } from "echarts";
 
 echarts.use([
   BarChart,
+  CandlestickChart,
   LineChart,
+  ScatterChart,
   AxisPointerComponent,
+  DataZoomComponent,
   GridComponent,
+  LegendComponent,
+  MarkLineComponent,
   TooltipComponent,
   CanvasRenderer,
 ]);
@@ -21,14 +33,22 @@ export function EChart({
   option,
   className,
   height = 280,
+  onDataZoom,
+  group,
 }: {
   option: EChartsOption;
   className?: string;
   height?: number;
+  onDataZoom?: (range: { start: number; end: number }) => void;
+  group?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   const applyRef = useRef<() => void>(() => {});
+  const onDataZoomRef = useRef(onDataZoom);
+  onDataZoomRef.current = onDataZoom;
+  const groupRef = useRef(group);
+  groupRef.current = group;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -39,6 +59,20 @@ export function EChart({
     const start = requestAnimationFrame(() => {
       const chart = echarts.init(host);
       chartRef.current = chart;
+      if (groupRef.current) {
+        chart.group = groupRef.current;
+        echarts.connect(groupRef.current);
+      }
+      chart.on("datazoom", (event: unknown) => {
+        const payload = event as {
+          start?: number;
+          end?: number;
+          batch?: { start?: number; end?: number }[];
+        };
+        const zoom = payload.batch?.[0] ?? payload;
+        if (Number.isFinite(zoom.start) && Number.isFinite(zoom.end))
+          onDataZoomRef.current?.({ start: zoom.start!, end: zoom.end! });
+      });
       applyRef.current();
       let width = host.clientWidth,
         height = host.clientHeight;

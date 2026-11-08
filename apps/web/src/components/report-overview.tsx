@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { useApi } from "@/lib/use-api";
 import { fmtMoney, fmtPercent, pnlClass } from "@/lib/utils";
 import { describeFilters } from "@/lib/filter-description";
+import type { ReportPopulationMeta } from "@/lib/report-population";
 
 interface OverviewData {
   buckets: Record<
@@ -20,6 +21,7 @@ interface OverviewData {
   timeZone: string;
   accounts: { id: string; name: string }[];
   playbooks: { id: string; name: string }[];
+  population: ReportPopulationMeta;
 }
 
 // Keep the original overview's aggregations and ordering alongside the advanced reports.
@@ -50,13 +52,19 @@ export function ReportOverview({ query, filters }: { query: string; filters: Ana
       </p>
     );
   const currency = data.currencies[0] ?? "USD";
+  const playback = data.population.kind === "playback";
+  const pnlLabel = playback ? "Gross P&L" : "Net P&L";
+  const sections = playback
+    ? SECTIONS.filter((section) => !["tag", "mistake", "playbook"].includes(section.key))
+    : SECTIONS;
   const label = (dimension: string, key: string) =>
     dimension === "playbook" ? (data.playbooks.find((book) => book.id === key)?.name ?? key) : key;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
-          Trading overview · {data.timeZone} · {currency}
+          {data.population.label} · {data.timeZone} · {currency}
+          {playback ? " · Gross before costs" : ""}
         </p>
         <ReviewExport
           containsFinancialData
@@ -66,16 +74,19 @@ export function ReportOverview({ query, filters }: { query: string; filters: Ana
             lines: [
               `Filters: ${describeFilters(filters, data.accounts, data.playbooks)}`,
               "",
+              `Population: ${data.population.executedTrades} executed · ${data.population.completedTrades} completed · ${data.population.openTrades} open`,
+              "",
               "Trade time performance (opening hour)",
               ...data.buckets.hour.map(
-                (b) => `${b.key}:00: ${b.trades} trades | Net P&L ${fmtMoney(b.netPnl, currency)}`,
+                (b) =>
+                  `${b.key}:00: ${b.trades} trades | ${pnlLabel} ${fmtMoney(b.netPnl, currency)}`,
               ),
-              ...SECTIONS.flatMap((section) => [
+              ...sections.flatMap((section) => [
                 "",
                 section.title,
                 ...data.buckets[section.key].map(
                   (b) =>
-                    `${label(section.key, b.key)}: ${b.trades} trades | Win ${fmtPercent(b.winRate, 0)} | Net P&L ${fmtMoney(b.netPnl, currency)}`,
+                    `${label(section.key, b.key)}: ${b.trades} trades | Win ${fmtPercent(b.winRate, 0)} | ${pnlLabel} ${fmtMoney(b.netPnl, currency)}`,
                 ),
               ]),
             ],
@@ -91,7 +102,7 @@ export function ReportOverview({ query, filters }: { query: string; filters: Ana
             <TimeHeatmap hours={data.buckets.hour} currency={currency} />
           </CardContent>
         </Card>
-        {SECTIONS.map((section) => (
+        {sections.map((section) => (
           <Card key={section.key}>
             <CardHeader>
               <CardTitle>{section.title}</CardTitle>
@@ -110,7 +121,7 @@ export function ReportOverview({ query, filters }: { query: string; filters: Ana
                       <TableHead>{section.title.replace("By ", "")}</TableHead>
                       <TableHead className="text-right">Trades</TableHead>
                       <TableHead className="text-right">Win %</TableHead>
-                      <TableHead className="text-right">Net P&L</TableHead>
+                      <TableHead className="text-right">{pnlLabel}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -138,10 +149,11 @@ export function ReportOverview({ query, filters }: { query: string; filters: Ana
         ))}
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Weekday and hour use trade opening times. Overview trade counts include open positions; win
-        rates use closed trades. Holding time requires a closed trade. Tags and mistakes can
-        overlap. By symbol shows the top 20 by net P&L; Breakdowns includes every symbol and
-        additional metrics for closed trades.
+        {playback
+          ? `${data.population.executedTrades} executed V5 parents: ${data.population.completedTrades} completed, ${data.population.openTrades} open${data.population.incompleteTrades ? `, ${data.population.incompleteTrades} incomplete` : ""}. P&L is reconstructed from certified applied fills and excludes fees and commissions. `
+          : "Overview trade counts include open positions; win rates and holding time use closed trades. Tags and mistakes can overlap. "}
+        Weekday and hour use trade opening times. By symbol shows the top 20 by{" "}
+        {playback ? "gross" : "net"} P&L; Breakdowns includes every symbol.
       </p>
     </div>
   );

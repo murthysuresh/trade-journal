@@ -19,7 +19,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
-      <body className="min-h-screen font-sans antialiased">
+      {/* Browser extensions may inject body classes before React hydrates. */}
+      <body className="min-h-screen font-sans antialiased" suppressHydrationWarning>
         <TooltipProvider delayDuration={350} skipDelayDuration={150}>
           <Suspense>
             <ThemeProvider>

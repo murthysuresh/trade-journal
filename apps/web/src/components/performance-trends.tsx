@@ -10,6 +10,7 @@ import { Pnl } from "./pnl";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
+import { reportTradeHref } from "@/lib/report-population";
 
 const RollingTradeChart = dynamic(
   () => import("./charts/rolling-trade-chart").then((module) => module.RollingTradeChart),
@@ -21,8 +22,6 @@ const RollingTradeChart = dynamic(
     ),
   },
 );
-const tradeHref = (key: string) => `/trades/${encodeURIComponent(key)}`;
-
 export function PerformanceTrendsReport({ query }: { query: string }) {
   const { data, loading, error, refresh } = useApi<PerformanceTrendsResponse>(
     `/api/performance-trends?${query}`,
@@ -58,6 +57,7 @@ export function PerformanceTrendsReport({ query }: { query: string }) {
       </div>
     );
   const { trends, timeZone, currencies } = data;
+  const playback = data.population.kind === "playback";
   const currency = currencies[0] ?? "USD";
   const monetary = currencies.length <= 1;
   const latest = trends.points.at(-1);
@@ -73,7 +73,8 @@ export function PerformanceTrendsReport({ query }: { query: string }) {
           Performance trends
         </h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {trends.count} closed trades · Active account and filters · Closing order · {timeZone}
+          {trends.count} completed {playback ? "parents" : "trades"} · {data.population.label} ·
+          Closing order · {timeZone}
           {monetary && trends.count > 0 ? ` · ${currency}` : ""}
         </p>
       </div>
@@ -108,8 +109,12 @@ export function PerformanceTrendsReport({ query }: { query: string }) {
                   <CardHeader>
                     <CardTitle>{rate ? "Win-rate trend" : "Average trade P&L trend"}</CardTitle>
                     <p className="text-xs text-muted-foreground">
-                      Last 20 closed trades at each point
-                      {rate ? " · Breakevens included" : " · After fees"}
+                      Last 20 completed {playback ? "parents" : "trades"} at each point
+                      {rate
+                        ? " · Breakevens included"
+                        : playback
+                          ? " · Gross before costs"
+                          : " · After fees"}
                     </p>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -168,10 +173,11 @@ export function PerformanceTrendsReport({ query }: { query: string }) {
           {monetary && (
             <Card className="min-w-0">
               <CardHeader>
-                <CardTitle>Largest winning and losing trade</CardTitle>
+                <CardTitle>Largest winning and losing {playback ? "parent" : "trade"}</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Individual closed trades, after fees—not daily totals. Uses your journal’s
-                  win/loss classification.
+                  Individual completed{" "}
+                  {playback ? "parents, gross before costs" : "trades, after fees"}—not daily
+                  totals. Uses the selected population’s win/loss classification.
                 </p>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -189,7 +195,7 @@ export function PerformanceTrendsReport({ query }: { query: string }) {
                           <Pnl value={trade.netPnl} currency={currency} />
                         </p>
                         <Link
-                          href={tradeHref(trade.key)}
+                          href={reportTradeHref(trade.key)}
                           className="mt-2 inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded text-sm underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-current"
                         >
                           <span className="break-all font-medium">
@@ -235,7 +241,7 @@ export function PerformanceTrendsReport({ query }: { query: string }) {
                         </th>
                         {monetary && (
                           <th scope="col" className="pl-2 text-right">
-                            Avg net P&L
+                            Avg {playback ? "gross" : "net"} P&L
                           </th>
                         )}
                       </tr>
@@ -246,7 +252,7 @@ export function PerformanceTrendsReport({ query }: { query: string }) {
                           <th scope="row" className="py-3 pr-3 font-normal">
                             <Link
                               className="rounded underline underline-offset-4"
-                              href={tradeHref(point.key)}
+                              href={reportTradeHref(point.key)}
                             >
                               #{point.sequence - 19}–{point.sequence}
                               <span className="mt-1 block text-muted-foreground">

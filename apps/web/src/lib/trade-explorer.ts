@@ -1,4 +1,5 @@
 import { clockTime, tradeR, type AnnotatedTrade } from "@luxalgo/journal-core";
+import type { ReportPopulationMeta } from "./report-population";
 
 export type TradeXAxis = "durationMinutes" | "entryMinute" | "mae" | "mfe";
 export type TradeYAxis = "netPnl" | "realizedR" | "mae" | "mfe";
@@ -18,6 +19,7 @@ export interface TradeExplorerResponse {
   points: TradePoint[];
   currencies: string[];
   timeZone: string;
+  population: ReportPopulationMeta;
 }
 const finite = (value: number | null): number | null =>
   value !== null && Number.isFinite(value) ? value : null;

@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TradeJournal V5 Analytics UI Board</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        background: #18181b;
+        color: #fafafa;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-width: 1180px;
+        background-color: #18181b;
+        background-image: radial-gradient(#3f3f46 0.75px, transparent 0.75px);
+        background-size: 24px 24px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 28px 36px;
+        border-bottom: 1px solid #3f3f46;
+        background: rgb(24 24 27 / 92%);
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 24px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+      .subtitle {
+        margin-top: 7px;
+        color: #a1a1aa;
+        font-size: 13px;
+      }
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .pill {
+        border: 1px solid #52525b;
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: #27272a;
+        color: #d4d4d8;
+        font-size: 12px;
+      }
+      main {
+        padding: 38px 36px 64px;
+      }
+      section + section {
+        margin-top: 48px;
+      }
+      .section-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      h2 {
+        font-size: 17px;
+        font-weight: 650;
+      }
+      .section-index {
+        color: #38bdf8;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+      }
+      .section-note {
+        color: #a1a1aa;
+        font-size: 12px;
+      }
+      .frames {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 24px;
+      }
+      .frame {
+        min-width: 0;
+      }
+      .frame-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 9px;
+        color: #e4e4e7;
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .frame-id {
+        color: #71717a;
+        font-variant-numeric: tabular-nums;
+        font-weight: 500;
+      }
+      .artboard {
+        overflow: hidden;
+        aspect-ratio: 1.44 / 1;
+        border: 1px solid #52525b;
+        border-radius: 8px;
+        background: #09090b;
+        box-shadow:
+          0 0 0 1px rgb(255 255 255 / 3%),
+          0 16px 34px rgb(0 0 0 / 24%);
+      }
+      .artboard img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: top left;
+      }
+      .frame-caption {
+        margin-top: 9px;
+        color: #a1a1aa;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+      .span-2 {
+        grid-column: span 2;
+      }
+      .span-2 .artboard {
+        aspect-ratio: 2.88 / 1;
+      }
+      .span-2 .artboard img {
+        object-fit: cover;
+      }
+      footer {
+        padding: 22px 36px 34px;
+        border-top: 1px solid #3f3f46;
+        color: #71717a;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>TradeJournal · V5 analytics UI board</h1>
+        <p class="subtitle">Certified EURUSD playback · feature inventory · desktop frames</p>
+      </div>
+      <div class="meta">
+        <span class="pill">Desktop 1440 × 1000</span>
+        <span class="pill">Dark theme</span>
+        <span class="pill">Run 711667ac…</span>
+        <span class="pill">Checkpoint 163196</span>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <div class="section-head">
+          <span class="section-index">01</span>
+          <h2>Ingest</h2>
+          <span class="section-note">Validate and publish a certified analytics snapshot</span>
+        </div>
+        <div class="frames">
+          <article class="frame span-2">
+            <div class="frame-bar">
+              <span>V5 analytics import</span><span class="frame-id">ING-01</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/v5-import.jpg" alt="V5 analytics import screen" />
+            </div>
+            <p class="frame-caption">
+              Absolute directory or ZIP path, imported-run registry, checkpoint state and recent
+              attempts.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <span class="section-index">02</span>
+          <h2>Research funnel</h2>
+          <span class="section-note">From signal acceptance to exact parent-level evidence</span>
+        </div>
+        <div class="frames">
+          <article class="frame">
+            <div class="frame-bar">
+              <span>Overview and filters</span><span class="frame-id">FUN-01</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/funnels-overview.jpg" alt="Trading Funnels overview" />
+            </div>
+            <p class="frame-caption">
+              Global filters, KPI strip, signal-to-execution funnel and target-fill funnel.
+            </p>
+          </article>
+          <article class="frame">
+            <div class="frame-bar">
+              <span>Attribute explorer</span><span class="frame-id">FUN-02</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/funnels-attributes.jpg" alt="Entry attribute explorer" />
+            </div>
+            <p class="frame-caption">
+              Registry-backed HH7 cohorts with conversion, gross outcome and data-quality measures.
+            </p>
+          </article>
+          <article class="frame">
+            <div class="frame-bar">
+              <span>AND cohort comparison</span><span class="frame-id">FUN-03</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/funnels-cohorts.jpg" alt="Two cohort comparison" />
+            </div>
+            <p class="frame-caption">
+              Two independently composed AND cohorts with a reconciled parent table below.
+            </p>
+          </article>
+          <article class="frame span-2">
+            <div class="frame-bar">
+              <span>Exact matching parents</span><span class="frame-id">FUN-04</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/funnels-parent-table.jpg" alt="Exact parent trade table" />
+            </div>
+            <p class="frame-caption">
+              Server-paginated parent IDs, certified stage status, gross ATR, exit class and
+              research coverage.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <span class="section-index">03</span>
+          <h2>Parent evidence</h2>
+          <span class="section-note"
+            >Trace a result back to candles, fills and timed research observations</span
+          >
+        </div>
+        <div class="frames">
+          <article class="frame">
+            <div class="frame-bar">
+              <span>Parent summary</span><span class="frame-id">TRD-01</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/parent-detail.jpg" alt="Certified V5 parent detail" />
+            </div>
+            <p class="frame-caption">
+              Entry context, target completion, gross ATR and synchronized execution chart.
+            </p>
+          </article>
+          <article class="frame span-2">
+            <div class="frame-bar">
+              <span>Indicators and execution evidence</span><span class="frame-id">TRD-02</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/parent-chart.jpg" alt="V5 chart indicators and fills" />
+            </div>
+            <p class="frame-caption">
+              Donchian bands, HH7 markers, F lane, CCI pane and the admitted fill ledger.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <span class="section-index">04</span>
+          <h2>Playback dashboard</h2>
+          <span class="section-note"
+            >Reuse the journal metric engine without merging parents into SQLite</span
+          >
+        </div>
+        <div class="frames">
+          <article class="frame span-2">
+            <div class="frame-bar">
+              <span>Gross performance dashboard</span><span class="frame-id">DSH-01</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/playback-dashboard.jpg" alt="V5 playback dashboard" />
+            </div>
+            <p class="frame-caption">
+              Gross P&amp;L, win rate, Edge Score, equity, daily results, calendar and activity.
+            </p>
+          </article>
+          <article class="frame">
+            <div class="frame-bar">
+              <span>Activity and time profile</span><span class="frame-id">DSH-02</span>
+            </div>
+            <div class="artboard">
+              <img
+                src="ui-samples/playback-dashboard-activity.jpg"
+                alt="Playback activity and time performance"
+              />
+            </div>
+            <p class="frame-caption">
+              Recent/open parents, drawdown, streaks, expectancy, duration and opening-hour
+              performance.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <span class="section-index">05</span>
+          <h2>Reports</h2>
+          <span class="section-note"
+            >Six ways to inspect and compare the certified playback population</span
+          >
+        </div>
+        <div class="frames">
+          <article class="frame">
+            <div class="frame-bar"><span>Overview</span><span class="frame-id">RPT-01</span></div>
+            <div class="artboard">
+              <img src="ui-samples/reports-overview.jpg" alt="Reports overview" />
+            </div>
+            <p class="frame-caption">
+              Time performance and core gross-P&amp;L breakdowns with export controls.
+            </p>
+          </article>
+          <article class="frame">
+            <div class="frame-bar">
+              <span>Performance trends</span><span class="frame-id">RPT-02</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/reports-trends.jpg" alt="Performance trends report" />
+            </div>
+            <p class="frame-caption">
+              Rolling 20-parent win rate and average gross P&amp;L with largest win/loss.
+            </p>
+          </article>
+          <article class="frame">
+            <div class="frame-bar">
+              <span>Trade explorer</span><span class="frame-id">RPT-03</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/reports-explorer.jpg" alt="Trade explorer scatter plot" />
+            </div>
+            <p class="frame-caption">
+              One point per completed parent with selectable duration and gross-P&amp;L axes.
+            </p>
+          </article>
+          <article class="frame">
+            <div class="frame-bar"><span>Breakdowns</span><span class="frame-id">RPT-04</span></div>
+            <div class="artboard">
+              <img src="ui-samples/reports-breakdowns.jpg" alt="Report breakdown" />
+            </div>
+            <p class="frame-caption">Group by supported dimensions and export the exact table.</p>
+          </article>
+          <article class="frame">
+            <div class="frame-bar">
+              <span>Cross-analysis</span><span class="frame-id">RPT-05</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/reports-cross-analysis.jpg" alt="Cross-analysis matrix" />
+            </div>
+            <p class="frame-caption">
+              Two-dimensional gross-P&amp;L matrix with an inspectable group table.
+            </p>
+          </article>
+          <article class="frame">
+            <div class="frame-bar">
+              <span>Compare groups</span><span class="frame-id">RPT-06</span>
+            </div>
+            <div class="artboard">
+              <img src="ui-samples/reports-compare-groups.jpg" alt="Group comparison report" />
+            </div>
+            <p class="frame-caption">
+              Independent filters, named cohorts and a direct gross-P&amp;L difference.
+            </p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      Real captures from the local TradeJournal build · EURUSD V5 playback · gross before costs
+    </footer>
+  </body>
+</html>

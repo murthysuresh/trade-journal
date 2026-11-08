@@ -8,6 +8,7 @@ import { MonetaryField } from "./privacy";
 import { ChevronDown, CircleHelp } from "lucide-react";
 import { HoverHint } from "./ui/tooltip";
 import { DatePicker } from "./ui/date-picker";
+import type { ReportPopulationKind } from "@/lib/report-population";
 const FIELD_HINTS: Record<string, string> = {
   From: "First included date. Closed trades use their closing day; open trades use their opening day.",
   To: "Last included date. Dates follow the journal time zone.",
@@ -49,9 +50,11 @@ export function Field({ label, children }: { label: string; children: React.Reac
 export function FilterFields({
   value,
   onChange,
+  population = "journal",
 }: {
   value: AnalysisFilters;
   onChange: (v: AnalysisFilters) => void;
+  population?: ReportPopulationKind;
 }) {
   const { data: accounts } = useApi<{
     accounts: { id: string; name: string; archivedAt: string | null }[];
@@ -105,15 +108,16 @@ export function FilterFields({
       <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-3">
         {input("from", "From", "date")}
         {input("to", "To", "date")}
-        {select(
-          "playbookId",
-          "Strategy",
-          (playbooks?.playbooks ?? []).map((p) => [p.id, p.name]),
-        )}
+        {population === "journal" &&
+          select(
+            "playbookId",
+            "Strategy",
+            (playbooks?.playbooks ?? []).map((p) => [p.id, p.name]),
+          )}
         {input("symbol", "Symbols (comma-separated)")}
         {input("excludeSymbol", "Exclude symbols")}
-        {input("tag", "Required tags (comma-separated)")}
-        {input("mistake", "Required mistakes")}
+        {population === "journal" && input("tag", "Required tags (comma-separated)")}
+        {population === "journal" && input("mistake", "Required mistakes")}
         {select("direction", "Direction", [
           ["long", "Long"],
           ["short", "Short"],
@@ -125,39 +129,42 @@ export function FilterFields({
           ["loss", "Loss"],
           ["breakeven", "Breakeven"],
         ])}
-        {select("reviewed", "Review status", [
-          ["yes", "Reviewed"],
-          ["no", "Unreviewed"],
-        ])}
+        {population === "journal" &&
+          select("reviewed", "Review status", [
+            ["yes", "Reviewed"],
+            ["no", "Unreviewed"],
+          ])}
         {select(
           "assetClass",
           "Asset class",
           ["equity", "futures", "forex", "option", "crypto", "cfd", "other"].map((v) => [v, v]),
         )}
       </div>
-      <fieldset className="journal-filter-accounts rounded-lg border p-3">
-        <legend className="px-1 text-xs text-muted-foreground">
-          Accounts · none selected means all
-        </legend>
-        <div className="flex flex-wrap gap-3">
-          {accounts?.accounts
-            .filter((a) => !a.archivedAt)
-            .map((a) => (
-              <label key={a.id} className="journal-filter-choice flex items-center gap-2 text-xs">
-                <Checkbox
-                  checked={(value.accounts ?? "").split(",").includes(a.id)}
-                  onCheckedChange={(checked) => {
-                    const ids = new Set((value.accounts ?? "").split(",").filter(Boolean));
-                    if (checked === true) ids.add(a.id);
-                    else ids.delete(a.id);
-                    set("accounts", [...ids].join(","));
-                  }}
-                />
-                {a.name}
-              </label>
-            ))}
-        </div>
-      </fieldset>
+      {population === "journal" && (
+        <fieldset className="journal-filter-accounts rounded-lg border p-3">
+          <legend className="px-1 text-xs text-muted-foreground">
+            Accounts · none selected means all
+          </legend>
+          <div className="flex flex-wrap gap-3">
+            {accounts?.accounts
+              .filter((a) => !a.archivedAt)
+              .map((a) => (
+                <label key={a.id} className="journal-filter-choice flex items-center gap-2 text-xs">
+                  <Checkbox
+                    checked={(value.accounts ?? "").split(",").includes(a.id)}
+                    onCheckedChange={(checked) => {
+                      const ids = new Set((value.accounts ?? "").split(",").filter(Boolean));
+                      if (checked === true) ids.add(a.id);
+                      else ids.delete(a.id);
+                      set("accounts", [...ids].join(","));
+                    }}
+                  />
+                  {a.name}
+                </label>
+              ))}
+          </div>
+        </fieldset>
+      )}
       <details className="journal-filter-advanced">
         <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm">
           <span>Size, price, risk and time</span>
@@ -170,10 +177,14 @@ export function FilterFields({
               ["entry", "Entry price"],
               ["exit", "Exit price"],
               ["duration", "Minutes held"],
-              ["r", "Realized R"],
-              ["plannedR", "Planned R"],
-              ["pnl", "Net P&L"],
-              ["rating", "Rating"],
+              ...(population === "journal"
+                ? ([
+                    ["r", "Realized R"],
+                    ["plannedR", "Planned R"],
+                  ] as const)
+                : []),
+              ["pnl", population === "playback" ? "Gross P&L" : "Net P&L"],
+              ...(population === "journal" ? ([["rating", "Rating"]] as const) : []),
             ] as const
           ).flatMap(([k, l]) => [
             input(`${k}Min` as FilterKey, `${l} · min`, "number"),

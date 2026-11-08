@@ -4,12 +4,16 @@ import { tradeExplorerPoints } from "@/lib/trade-explorer";
 import { handler, ok } from "@/server/api";
 import { getTimeZone } from "@/server/settings";
 import { queryTrades } from "@/server/trades-query";
+import { journalPopulation, queryPlaybackReport } from "@/server/report-population";
 
 import { savedEstimates } from "@/server/market-data/estimates";
 
-export const GET = handler((request: Request) => {
-  const { trades } = queryTrades(readFilters(new URL(request.url).searchParams));
-  const timeZone = getTimeZone();
+export const GET = handler(async (request: Request) => {
+  const params = new URL(request.url).searchParams;
+  const filters = readFilters(params);
+  const playback = await queryPlaybackReport(params, filters);
+  const { trades } = playback ?? queryTrades(filters);
+  const timeZone = playback?.timeZone ?? getTimeZone();
   const currencies = new Map(
     db
       .select({ id: accounts.id, currency: accounts.currency })
@@ -17,14 +21,14 @@ export const GET = handler((request: Request) => {
       .all()
       .map((account) => [account.id, account.currency]),
   );
-  const estimates = savedEstimates(trades);
+  const estimates = playback ? new Map() : savedEstimates(trades);
   return ok({
     points: tradeExplorerPoints(trades, timeZone).map((point) => ({
       ...point,
       mae: estimates.get(point.key)?.estimate.mae ?? null,
       mfe: estimates.get(point.key)?.estimate.mfe ?? null,
     })),
-    currencies: [
+    currencies: playback?.currencies ?? [
       ...new Set(
         trades
           .filter((trade) => trade.status !== "open" && trade.closedAt)
@@ -32,5 +36,6 @@ export const GET = handler((request: Request) => {
       ),
     ],
     timeZone,
+    population: playback?.population ?? journalPopulation(trades),
   });
 });

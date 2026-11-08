@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import type {
   CalendarMonth,
@@ -34,6 +35,7 @@ import {
 import { FilterBar, useFilters } from "@/components/filter-bar";
 import { AddTradeDialog } from "@/components/add-trade-dialog";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import { ReportPopulationSelect } from "@/components/report-population-select";
 import { MonetaryValue } from "@/components/privacy";
 import { Pnl } from "@/components/pnl";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +45,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HelpHint, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { postJson, useApi } from "@/lib/use-api";
 import type { CalendarPnlPoint } from "@/lib/calendar-insights";
+import {
+  reportTradeHref,
+  type ReportPopulationKind,
+  type ReportPopulationMeta,
+} from "@/lib/report-population";
 import { cn, fmtDuration, fmtMoney, fmtNumber, fmtPercent } from "@/lib/utils";
 
 interface Bucket {
@@ -64,6 +71,7 @@ interface StatsPayload {
   calendar: CalendarMonth;
   calendarCurrencies: string[];
   runningPnl: Record<string, CalendarPnlPoint[]>;
+  population: ReportPopulationMeta;
   buckets: Record<"symbol" | "weekday" | "hour" | "duration" | "direction", Bucket[]>;
   openPositions: {
     key: string;
@@ -94,17 +102,36 @@ export default function DashboardPage() {
 
 function Dashboard() {
   const { query } = useFilters();
-  const { data, loading, error, refresh } = useApi<StatsPayload>(`/api/stats?${query}`);
+  const params = useSearchParams();
+  const population: ReportPopulationKind =
+    params.get("population") === "playback" ? "playback" : "journal";
+  const runId = params.get("run") ?? "";
+  const dashboardParams = new URLSearchParams(query);
+  if (population === "playback") {
+    dashboardParams.set("population", "playback");
+    if (runId) dashboardParams.set("run", runId);
+  }
+  const dashboardQuery = dashboardParams.toString();
+  const { data, loading, error, refresh } = useApi<StatsPayload>(`/api/stats?${dashboardQuery}`);
 
   return (
     <>
-      <FilterBar title="Dashboard" actions={<AddTradeDialog onSaved={refresh} />} />
+      <FilterBar
+        title="Dashboard"
+        population={population}
+        actions={
+          <>
+            <ReportPopulationSelect population={population} runId={runId} />
+            {population === "journal" && <AddTradeDialog onSaved={refresh} />}
+          </>
+        }
+      />
       <DashboardContent
         data={data}
         loading={loading}
         error={error}
         refresh={refresh}
-        query={query}
+        query={dashboardQuery}
       />
     </>
   );
@@ -181,12 +208,16 @@ function DashboardContent({
   const { metrics: m, edgeScore } = data;
   if (!m || !edgeScore) return null;
   const currency = data.currencyScope.currency ?? "USD";
+  const playback = data.population.kind === "playback";
+  const pnlBasis = playback ? "Gross" : "Net";
+  const tradeNoun = playback ? "parents" : "trades";
 
   if (m.totalTrades === 0)
     return query ? (
       <div>
         <p className="p-12 text-center text-sm text-muted-foreground">
-          No trades match these filters. Clear or adjust Filters to see more results.
+          No {playback ? "playback parents" : "trades"} match these filters. Clear or adjust Filters
+          to see more results.
         </p>
       </div>
     ) : (
@@ -227,15 +258,19 @@ function DashboardContent({
         widgets={[
           {
             id: "widget-0",
-            label: "Net P&L",
+            label: `${pnlBasis} P&L`,
             size: "small",
             layoutGroup: "summary",
             content: (
               <Card className="h-full">
                 <StatHeader
-                  title="Net P&L"
+                  title={`${pnlBasis} P&L`}
                   icon={CircleDollarSign}
-                  hint="Realized profit and loss net of fees, over the selected range."
+                  hint={
+                    playback
+                      ? "Realized gross price outcome before fees and commissions, over the selected range."
+                      : "Realized profit and loss net of fees, over the selected range."
+                  }
                 />
                 <CardContent>
                   <Pnl
@@ -258,8 +293,18 @@ function DashboardContent({
                     </div>
                   )}
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {m.closedTrades} closed trades ·{" "}
-                    <MonetaryValue>{fmtMoney(m.fees, currency)}</MonetaryValue> fees
+                    {playback ? (
+                      <>
+                        {data.population.executedTrades.toLocaleString()} executed parents ·{" "}
+                        {data.population.completedTrades.toLocaleString()} completed ·{" "}
+                        {data.population.openTrades.toLocaleString()} open
+                      </>
+                    ) : (
+                      <>
+                        {m.closedTrades} closed trades ·{" "}
+                        <MonetaryValue>{fmtMoney(m.fees, currency)}</MonetaryValue> fees
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -267,18 +312,18 @@ function DashboardContent({
           },
           {
             id: "widget-1",
-            label: "Trade win %",
+            label: playback ? "Gross win %" : "Trade win %",
             size: "small",
             layoutGroup: "summary",
             content: (
               <Card className="h-full">
                 <StatHeader
-                  title="Trade win %"
+                  title={playback ? "Gross win %" : "Trade win %"}
                   icon={Target}
-                  hint="Winning trades divided by all closed trades, including breakevens."
+                  hint={`Winning ${tradeNoun} divided by all completed ${tradeNoun}, including breakevens.`}
                 />
                 <CardContent className="flex items-center justify-between gap-2">
-                  <Gauge value={m.winRate} label="Trade win rate" />
+                  <Gauge value={m.winRate} label={playback ? "Gross win rate" : "Trade win rate"} />
                   <div className="space-y-0.5 text-xs text-muted-foreground">
                     <div>{m.wins} W</div>
                     <div>{m.breakevens} BE</div>
@@ -399,7 +444,7 @@ function DashboardContent({
                     <CardTitle>Edge Score</CardTitle>
                     <HelpHint heading="Edge Score">
                       A 0–100 score combining win rate, profit factor, average win/loss, drawdown,
-                      recovery, and consistency. Requires at least five closed trades.
+                      recovery, and consistency. Requires at least five completed {tradeNoun}.
                     </HelpHint>
                   </div>
                   <span className="text-2xl font-semibold tracking-tight tnum">
@@ -414,7 +459,7 @@ function DashboardContent({
                 <CardContent className="dashboard-visual-card-content">
                   {edgeScore.score === null ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">
-                      Needs 5+ closed trades. The formula is open —{" "}
+                      Needs 5+ completed {tradeNoun}. The formula is open —{" "}
                       <a
                         className="underline"
                         href="https://github.com/LuxAlgo/trade-journal/blob/main/docs/edge-score.md"
@@ -434,16 +479,16 @@ function DashboardContent({
           },
           {
             id: "widget-6",
-            label: "Cumulative P&L",
+            label: `${pnlBasis} cumulative P&L`,
             size: "medium",
             layoutGroup: "visuals",
             content: (
               <Card className="dashboard-visual-card h-full">
                 <CardHeader className="flex-row items-center justify-between">
-                  <CardTitle>Daily net cumulative P&L</CardTitle>
+                  <CardTitle>Daily {pnlBasis.toLowerCase()} cumulative P&L</CardTitle>
                   <HelpHint heading="Cumulative P&L">
-                    Running total of net profit and loss over the selected period. The drawdown bars
-                    below show declines from the running equity peak.
+                    Running total of {pnlBasis.toLowerCase()} profit and loss over the selected
+                    period. The drawdown bars below show declines from the running equity peak.
                   </HelpHint>
                 </CardHeader>
                 <CardContent>
@@ -460,16 +505,16 @@ function DashboardContent({
           },
           {
             id: "widget-7",
-            label: "Daily P&L",
+            label: `${pnlBasis} daily P&L`,
             size: "medium",
             layoutGroup: "visuals",
             content: (
               <Card className="dashboard-visual-card h-full">
                 <CardHeader className="flex-row items-center justify-between">
-                  <CardTitle>Net daily P&L</CardTitle>
+                  <CardTitle>{pnlBasis} daily P&L</CardTitle>
                   <HelpHint heading="Daily P&L">
-                    Net profit or loss for each trading day. Bars above zero are profitable; bars
-                    below zero are losses.
+                    {pnlBasis} profit or loss for each trading day. Bars above zero are profitable;
+                    bars below zero are losses.
                   </HelpHint>
                 </CardHeader>
                 <CardContent className="dashboard-visual-card-content">
@@ -496,12 +541,14 @@ function DashboardContent({
                       { month: "long", year: "numeric", timeZone: "UTC" },
                     )}
                   </CardTitle>
-                  <Link
-                    href={`/calendar?${query}`}
-                    className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                  >
-                    Full calendar
-                  </Link>
+                  {!playback && (
+                    <Link
+                      href={`/calendar?${query}`}
+                      className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    >
+                      Full calendar
+                    </Link>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <CalendarPnl
@@ -528,18 +575,24 @@ function DashboardContent({
                   <Tabs defaultValue="recent">
                     <TabsList className="h-8">
                       <TabsTrigger value="recent" className="text-xs">
-                        Recent trades
+                        Recent {tradeNoun}
                       </TabsTrigger>
                       <TabsTrigger value="open" className="text-xs">
-                        Open positions
+                        Open {playback ? "parents" : "positions"}
                       </TabsTrigger>
                     </TabsList>
                     <TabsContent value="recent" className="space-y-1">
-                      {data.recentTrades.length === 0 && <Empty label="No closed trades yet" />}
+                      {data.recentTrades.length === 0 && (
+                        <Empty label={`No completed ${tradeNoun} yet`} />
+                      )}
                       {data.recentTrades.map((trade) => (
                         <Link
                           key={trade.key}
-                          href={`/trades/${encodeURIComponent(trade.key)}?${query}`}
+                          href={
+                            playback
+                              ? reportTradeHref(trade.key)
+                              : `${reportTradeHref(trade.key)}?${query}`
+                          }
                           className="dashboard-activity-row flex items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent/60"
                         >
                           <span className="flex items-center gap-2">
@@ -610,7 +663,9 @@ function DashboardContent({
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {m.maxDrawdownPct === null
-                      ? "set an initial balance for %"
+                      ? playback
+                        ? "gross outcome curve · no capital baseline"
+                        : "set an initial balance for %"
                       : fmtPercent(m.maxDrawdownPct)}
                     {m.recoveryFactor !== null && ` · recovery ${fmtNumber(m.recoveryFactor)}x`}
                   </div>
@@ -647,15 +702,15 @@ function DashboardContent({
           },
           {
             id: "widget-12",
-            label: "Expectancy / trade",
+            label: `Expectancy / ${playback ? "parent" : "trade"}`,
             size: "small",
             layoutGroup: "secondary",
             content: (
               <Card className="h-full">
                 <StatHeader
-                  title="Expectancy / trade"
+                  title={`Expectancy / ${playback ? "parent" : "trade"}`}
                   icon={Sigma}
-                  hint="Average net P&L per closed trade: what one more trade is worth on your numbers."
+                  hint={`Average ${pnlBasis.toLowerCase()} P&L per completed ${playback ? "parent" : "trade"}.`}
                 />
                 <CardContent>
                   {m.expectancy === null ? (
@@ -668,9 +723,11 @@ function DashboardContent({
                     />
                   )}
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {m.avgRealizedR !== null && m.tradesWithRisk > 0
-                      ? `avg ${fmtNumber(m.avgRealizedR)}R over ${m.tradesWithRisk} risk-tagged trades`
-                      : "tag stop-losses to unlock R multiples"}
+                    {playback
+                      ? "gross price outcome before costs"
+                      : m.avgRealizedR !== null && m.tradesWithRisk > 0
+                        ? `avg ${fmtNumber(m.avgRealizedR)}R over ${m.tradesWithRisk} risk-tagged trades`
+                        : "tag stop-losses to unlock R multiples"}
                   </div>
                 </CardContent>
               </Card>
@@ -707,7 +764,7 @@ function DashboardContent({
                 <StatHeader
                   title="Best / worst day"
                   icon={Trophy}
-                  hint="Highest and lowest single-day net P&L in the selected range."
+                  hint={`Highest and lowest single-day ${pnlBasis.toLowerCase()} P&L in the selected range.`}
                 />
                 <CardContent className="space-y-1">
                   {bestDay && (
@@ -738,16 +795,16 @@ function DashboardContent({
           },
           {
             id: "widget-15",
-            label: "Trade time performance",
+            label: `${playback ? "Parent" : "Trade"} time performance`,
             size: "full",
             layoutGroup: "full",
             content: (
               <Card className="h-full">
                 <CardHeader className="flex-row items-center justify-between">
-                  <CardTitle>Trade time performance</CardTitle>
-                  <HelpHint heading="Trade time performance">
-                    Trades grouped by their opening hour. The upper chart shows net P&L; the lower
-                    chart shows trade count.
+                  <CardTitle>{playback ? "Parent" : "Trade"} time performance</CardTitle>
+                  <HelpHint heading={`${playback ? "Parent" : "Trade"} time performance`}>
+                    {playback ? "Parents" : "Trades"} grouped by their opening hour. The upper chart
+                    shows {pnlBasis.toLowerCase()} P&L; the lower chart shows count.
                   </HelpHint>
                 </CardHeader>
                 <CardContent>

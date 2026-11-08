@@ -11,6 +11,7 @@ import {
   BookText,
   CalendarDays,
   Import,
+  GitBranch,
   LayoutDashboard,
   ListOrdered,
   NotebookPen,
@@ -43,6 +44,10 @@ const NAV = [
   { href: "/playbooks", label: "Playbooks", icon: BookOpen },
   { href: "/progress", label: "Progress", icon: ListChecks },
   { href: "/missed", label: "Missed trades", icon: BookmarkPlus },
+] as const;
+
+const NAV_ANALYTICS = [
+  { href: "/analytics/trading-funnels", label: "Trading funnels", icon: GitBranch },
 ] as const;
 
 const NAV_SETUP = [
@@ -145,6 +150,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
     if (value) filterQuery.set(key, value);
   }
   if (search.get("range")) filterQuery.set("range", search.get("range")!);
+  const reportQuery = new URLSearchParams(filterQuery);
+  if (search.get("population") === "playback") {
+    reportQuery.set("population", "playback");
+    const run = search.get("run");
+    if (run) reportQuery.set("run", run);
+  }
+  const dashboardHref = reportQuery.size ? `/?${reportQuery}` : "/";
   if (pathname === "/login") return <>{children}</>;
   const navigation = (collapsed = false) => (
     <nav
@@ -154,14 +166,31 @@ export function Shell({ children }: { children: React.ReactNode }) {
         if ((event.target as HTMLElement).closest("a")) setMenuOpen(false);
       }}
     >
-      {NAV.map(({ href, label, icon }) => (
+      {NAV.map(({ href, label, icon }) => {
+        const query = href === "/" || href === "/reports" ? reportQuery : filterQuery;
+        return (
+          <NavLink
+            key={href}
+            href={href === "/prop-firms" ? href : query.size ? `${href}?${query.toString()}` : href}
+            label={label}
+            icon={icon}
+            collapsed={collapsed}
+            active={href === "/" ? pathname === "/" : pathname.startsWith(href)}
+          />
+        );
+      })}
+      <div className="!my-3 border-t" />
+      <div className="journal-sidebar-label px-2.5 pb-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+        Analytics
+      </div>
+      {NAV_ANALYTICS.map(({ href, label, icon }) => (
         <NavLink
           key={href}
-          href={href === "/prop-firms" ? href : filterQuery.size ? `${href}?${filterQuery}` : href}
+          href={href}
           label={label}
           icon={icon}
           collapsed={collapsed}
-          active={href === "/" ? pathname === "/" : pathname.startsWith(href)}
+          active={pathname.startsWith(href)}
         />
       ))}
       <div className="!my-3 border-t" />
@@ -238,7 +267,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </DialogPrimitive.Portal>
         </DialogPrimitive.Root>
         <Link
-          href="/"
+          href={dashboardHref}
           className="mr-auto flex min-w-0 items-center gap-2 text-sm font-semibold tracking-tight"
         >
           <LuxAlgoMark className="hidden h-4 w-[18px] shrink-0 min-[380px]:block" />
@@ -253,7 +282,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
         data-ready={sidebarReady}
       >
         <div className="journal-sidebar-header relative flex h-14 shrink-0 items-center border-b">
-          <Link href="/" className="journal-sidebar-home flex h-full min-w-0 items-center gap-2.5">
+          <Link
+            href={dashboardHref}
+            className="journal-sidebar-home flex h-full min-w-0 items-center gap-2.5"
+          >
             <LuxAlgoMark className="h-[18px] w-5 shrink-0" />
             <span className="journal-sidebar-brand-label text-sm font-semibold tracking-tight">
               Trade Journal
