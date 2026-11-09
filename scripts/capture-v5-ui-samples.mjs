@@ -7,8 +7,12 @@ const EDGE =
   process.env.EDGE_PATH ?? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const BASE_URL = process.env.TRADE_JOURNAL_URL ?? "http://localhost:3001";
 const RUN_ID = "711667acaeae4bdeb78dda1aa41f445e";
-const OUTPUT = resolve("docs", "ui-samples");
+const MATCH_PARENT_ID = process.env.CAPTURE_PARENT_ID ?? `${RUN_ID}-T3871`;
+const TRADE_PARENT_ID = process.env.CAPTURE_PARENT_ID ?? `${RUN_ID}-T2`;
+const OUTPUT = resolve(process.env.CAPTURE_OUTPUT ?? join("docs", "ui-samples"));
 const DEBUG_PORT = 9333;
+const CAPTURE_WIDTH = Number(process.env.CAPTURE_WIDTH ?? 1440);
+const CAPTURE_HEIGHT = Number(process.env.CAPTURE_HEIGHT ?? 1000);
 const profile = mkdtempSync(join(tmpdir(), "trade-journal-ui-capture-"));
 
 mkdirSync(OUTPUT, { recursive: true });
@@ -108,8 +112,8 @@ async function createClient() {
     client.send("Page.enable"),
     client.send("Runtime.enable"),
     client.send("Emulation.setDeviceMetricsOverride", {
-      width: 1440,
-      height: 1000,
+      width: CAPTURE_WIDTH,
+      height: CAPTURE_HEIGHT,
       deviceScaleFactor: 1,
       mobile: false,
     }),
@@ -188,6 +192,70 @@ async function clickText(client, text) {
   await sleep(2_000);
 }
 
+async function clickAriaLabel(client, label) {
+  const rect = await evaluate(
+    client,
+    `(() => {
+      const expected = ${JSON.stringify(label)};
+      const node = [...document.querySelectorAll('[aria-label]')]
+        .find((candidate) => candidate.getAttribute('aria-label') === expected);
+      if (!node || !node.getClientRects().length) return null;
+      const bounds = node.getBoundingClientRect();
+      return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
+    })()`,
+  );
+  if (!rect) throw new Error(`Could not find aria-label: ${label}`);
+  await client.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: rect.x,
+    y: rect.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await client.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: rect.x,
+    y: rect.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await sleep(1_000);
+}
+
+async function clickSelector(client, selector) {
+  const rect = await evaluate(
+    client,
+    `(() => {
+      const node = document.querySelector(${JSON.stringify(selector)});
+      if (!node || !node.getClientRects().length) return null;
+      const bounds = node.getBoundingClientRect();
+      return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
+    })()`,
+  );
+  if (!rect) throw new Error(`Could not find selector: ${selector}`);
+  await client.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: rect.x,
+    y: rect.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await client.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: rect.x,
+    y: rect.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await sleep(1_000);
+}
+
+const dashboardCalendarTitle = (client) =>
+  evaluate(
+    client,
+    `document.querySelector('[aria-label="Previous calendar month"]')?.nextElementSibling?.textContent?.trim() ?? null`,
+  );
+
 async function scrollToText(client, text, offset = 12) {
   const scrolled = await evaluate(
     client,
@@ -233,60 +301,157 @@ let client;
 try {
   client = await createClient();
 
-  if (!["trade", "reports"].includes(process.env.CAPTURE_START ?? "")) {
-    await navigate(client, "/import", "V5 analytics");
-    await clickText(client, "V5 analytics");
-    await waitForText(client, "Donchian V5 analytics export");
-    await capture(client, "v5-import");
-
-    const funnelPath = `/analytics/trading-funnels?run=${RUN_ID}`;
-    await navigate(client, funnelPath, "Funnel A · Signal to execution");
-    await capture(client, "funnels-overview");
-    await scrollToText(client, "Entry attribute cohort explorer");
-    await capture(client, "funnels-attributes");
-    await scrollToText(client, "AND cohort comparison");
-    await capture(client, "funnels-cohorts");
-    await scrollToText(client, "Matching parent trades");
-    await capture(client, "funnels-parent-table");
-  }
-
-  const playback = `population=playback&run=${RUN_ID}`;
-  if (process.env.CAPTURE_START !== "reports") {
+  if (process.env.CAPTURE_START === "session-calendar") {
+    await navigate(client, `/reports?population=playback&run=${RUN_ID}`, "V5 Playback");
+    await clickText(client, "Session calendar");
+    await waitForText(client, "Select a populated calendar day", 60_000);
+    const monthDelta = Number(process.env.CAPTURE_SESSION_MONTH_DELTA ?? 0);
+    const monthDirection = monthDelta < 0 ? "Previous report month" : "Next report month";
+    for (let step = 0; step < Math.abs(monthDelta); step += 1) {
+      await clickSelector(client, `button[aria-label='${monthDirection}']`);
+      await sleep(300);
+    }
+    await capture(client, "session-calendar-month");
+    const targetDate = process.env.CAPTURE_SESSION_DATE;
+    await clickSelector(
+      client,
+      targetDate
+        ? `button.journal-calendar-day[aria-label^='${targetDate},']`
+        : "button.journal-calendar-day:not(:disabled)",
+    );
+    await waitForText(client, "The session chart is plotted below", 60_000);
+    await evaluate(
+      client,
+      `document.getElementById('session-trades')?.scrollIntoView({ block: 'start' })`,
+    );
+    await sleep(300);
+    await capture(client, "session-calendar-trades");
+    await waitForText(client, "Session execution chart", 60_000);
+    await evaluate(
+      client,
+      `document.getElementById('session-parent-chart')?.scrollIntoView({ block: 'start' })`,
+    );
+    await sleep(500);
+    await capture(client, "session-calendar-chart");
+  } else if (process.env.CAPTURE_START === "trade-detail") {
     await navigate(
       client,
-      `/analytics/trading-funnels/${RUN_ID}/${RUN_ID}-T2`,
+      `/analytics/trading-funnels/${RUN_ID}/${TRADE_PARENT_ID}`,
       "Certified trade chart",
     );
     await capture(client, "parent-detail");
-    await scrollToText(
+    await scrollToText(client, "Execution evidence", 76);
+    await capture(client, "parent-execution");
+  } else if (process.env.CAPTURE_START === "dashboard-calendar") {
+    await navigate(client, `/?population=playback&run=${RUN_ID}`, "Gross P&L");
+    const initialMonth = await retry(async () => {
+      const title = await dashboardCalendarTitle(client);
+      if (!title) throw new Error("Waiting for the dashboard calendar title.");
+      return title;
+    });
+    await scrollToText(client, initialMonth, 76);
+    await capture(client, "playback-calendar-current");
+    await clickAriaLabel(client, "Previous calendar month");
+    const previousMonth = await retry(async () => {
+      const title = await dashboardCalendarTitle(client);
+      if (!title || title === initialMonth) throw new Error("Waiting for the previous month.");
+      return title;
+    }, 60_000);
+    await scrollToText(client, previousMonth, 76);
+    await capture(client, "playback-calendar-previous");
+    await clickAriaLabel(client, "Next calendar month");
+    await retry(async () => {
+      const title = await dashboardCalendarTitle(client);
+      if (title !== initialMonth) throw new Error("Waiting to return to the original month.");
+      return true;
+    }, 60_000);
+  } else if (process.env.CAPTURE_START === "similar") {
+    await navigate(
       client,
-      "M15 price · TV Donchian CCI Hierarchy V5 · Donchian 20 + HH7 + F lane",
+      `/analytics/trading-funnels/${RUN_ID}/${MATCH_PARENT_ID}`,
+      "Outcome hidden",
     );
-    await capture(client, "parent-chart");
+    await capture(client, "similar-reference-b0");
+    await clickText(client, "Find Similar Trades");
+    await waitForText(client, "Historical B0 matches", 60_000);
+    await scrollToText(client, "Historical B0 matches", 76);
+    await capture(client, "similar-results");
+    await scrollToText(client, "Side-by-side B0 evidence", 76);
+    await capture(client, "similar-comparison");
+    await evaluate(client, "window.scrollTo(0, 0)");
+    await sleep(500);
+    await clickText(client, "Reveal Outcome");
+    await waitForText(client, "Certified trade chart", 60_000);
+    await capture(client, "similar-revealed-outcome");
+  } else if (process.env.CAPTURE_START === "entry-confirmation") {
+    const funnelPath = `/analytics/trading-funnels?run=${RUN_ID}`;
+    await navigate(client, funnelPath, "Entry Confirmation & Follow-Through");
+    await scrollToText(client, "Entry Confirmation & Follow-Through", 76);
+    await capture(client, "funnels-entry-confirmation");
+    await scrollToText(client, "Follow-through · B1 to B5", 76);
+    await capture(client, "funnels-follow-through");
+    await scrollToText(client, "Matching parent trades", 76);
+    await capture(client, "funnels-parent-table");
+  } else {
+    if (!["trade", "reports"].includes(process.env.CAPTURE_START ?? "")) {
+      await navigate(client, "/import", "V5 analytics");
+      await clickText(client, "V5 analytics");
+      await waitForText(client, "Donchian V5 analytics export");
+      await capture(client, "v5-import");
 
-    await navigate(client, `/?${playback}`, "Gross P&L");
-    await capture(client, "playback-dashboard");
-    await scrollToText(client, "Activity");
-    await capture(client, "playback-dashboard-activity");
+      const funnelPath = `/analytics/trading-funnels?run=${RUN_ID}`;
+      await navigate(client, funnelPath, "Funnel A · Signal to execution");
+      await capture(client, "funnels-overview");
+      await scrollToText(client, "Entry attribute cohort explorer");
+      await capture(client, "funnels-attributes");
+      await scrollToText(client, "AND cohort comparison");
+      await capture(client, "funnels-cohorts");
+      await scrollToText(client, "Entry Confirmation & Follow-Through", 76);
+      await capture(client, "funnels-entry-confirmation");
+      await scrollToText(client, "Follow-through · B1 to B5", 76);
+      await capture(client, "funnels-follow-through");
+      await scrollToText(client, "Matching parent trades", 76);
+      await capture(client, "funnels-parent-table");
+    }
+
+    const playback = `population=playback&run=${RUN_ID}`;
+    if (process.env.CAPTURE_START !== "reports") {
+      await navigate(
+        client,
+        `/analytics/trading-funnels/${RUN_ID}/${TRADE_PARENT_ID}`,
+        "Certified trade chart",
+      );
+      await capture(client, "parent-detail");
+      await scrollToText(
+        client,
+        "M15 price · TV Donchian CCI Hierarchy V5 · Donchian 20 + HH7 + F lane",
+      );
+      await capture(client, "parent-chart");
+
+      await navigate(client, `/?${playback}`, "Gross P&L");
+      await capture(client, "playback-dashboard");
+      await scrollToText(client, "Activity");
+      await capture(client, "playback-dashboard-activity");
+    }
+
+    await navigate(client, `/reports?${playback}`, "V5 Playback");
+    await capture(client, "reports-overview");
+    await clickText(client, "Performance trends");
+    await waitForText(client, "Largest winning and losing parent");
+    await capture(client, "reports-trends");
+    await clickText(client, "Trade explorer");
+    await waitForText(client, "Compare individual trades");
+    await capture(client, "reports-explorer");
+    await clickText(client, "Breakdowns");
+    await waitForText(client, "Performance by symbol");
+    await capture(client, "reports-breakdowns");
+    await clickText(client, "Cross-analysis");
+    await waitForText(client, "Symbol × Weekday");
+    await capture(client, "reports-cross-analysis");
+    await clickText(client, "Compare groups");
+    await waitForText(client, "Long parents");
+    await capture(client, "reports-compare-groups");
   }
-
-  await navigate(client, `/reports?${playback}`, "V5 Playback");
-  await capture(client, "reports-overview");
-  await clickText(client, "Performance trends");
-  await waitForText(client, "Largest winning and losing parent");
-  await capture(client, "reports-trends");
-  await clickText(client, "Trade explorer");
-  await waitForText(client, "Compare individual trades");
-  await capture(client, "reports-explorer");
-  await clickText(client, "Breakdowns");
-  await waitForText(client, "Performance by symbol");
-  await capture(client, "reports-breakdowns");
-  await clickText(client, "Cross-analysis");
-  await waitForText(client, "Symbol × Weekday");
-  await capture(client, "reports-cross-analysis");
-  await clickText(client, "Compare groups");
-  await waitForText(client, "Long parents");
-  await capture(client, "reports-compare-groups");
 
   console.log(`Captured UI samples in ${OUTPUT}`);
 } finally {

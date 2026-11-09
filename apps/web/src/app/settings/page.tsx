@@ -15,6 +15,7 @@ import { ContractMultiplierSettings, TimeZoneSettings } from "@/components/journ
 import { MarketDataSettings } from "@/components/market-data-settings";
 import { AiSettings } from "@/components/ai-settings";
 import { CurrencySettings } from "@/components/currency-settings";
+import { V5ChartSettings } from "@/components/v5-chart-settings";
 import { FilterBar } from "@/components/filter-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,12 @@ const sections = [
     label: "Trading",
     icon: SlidersHorizontal,
     description: "Manage contract multipliers, breakeven rules, fees, and risk defaults.",
+  },
+  {
+    id: "charts",
+    label: "Charts",
+    icon: ChartCandlestick,
+    description: "Choose how certified V5 charts open and what they show on hover.",
   },
   {
     id: "currency-conversion",
@@ -66,6 +73,7 @@ function sectionForHash(hash: string): Section {
   const id = hash.replace(/^#/, "");
   if (id === "market-csv") return "market-data";
   if (id === "contract-multipliers" || id === "journal-defaults") return "trading";
+  if (id === "v5-chart-preferences") return "charts";
   return sections.find((section) => section.id === id)?.id ?? "general";
 }
 
@@ -173,6 +181,7 @@ function Settings() {
                     <JournalDefaultSettings />
                   </>
                 )}
+                {id === "charts" && <V5ChartSettings />}
                 {id === "currency-conversion" && <CurrencySettings />}
                 {id === "market-data" && <MarketDataSettings />}
                 {id === "ai-settings" && <AiSettings />}

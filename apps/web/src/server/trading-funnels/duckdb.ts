@@ -2,10 +2,10 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DuckDBInstance, type DuckDBConnection, type DuckDBValue } from "@duckdb/node-api";
 import { dataDir } from "@/db";
-import { attributeRegistrySeedSql, entryFeaturesSelectSql } from "./attributes";
+import { attributeRegistrySeedSql, entryFeaturesInsertSql } from "./attributes";
 
 const ANALYTICS_FILE = "trading-funnels.duckdb";
-const ANALYTICS_SCHEMA_VERSION = 2;
+const ANALYTICS_SCHEMA_VERSION = 3;
 
 const schemaSql = `
 CREATE TABLE IF NOT EXISTS analytics_import_attempts (
@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS opportunities (
   trigger_price DOUBLE,
   upper_trigger DOUBLE,
   lower_trigger DOUBLE,
+  donchian20_upper_prev DOUBLE,
+  donchian20_lower_prev DOUBLE,
   entry_width20_h1atr DOUBLE,
   entry_atr_h1 DOUBLE,
   cci20_at_signal DOUBLE,
@@ -194,11 +196,21 @@ CREATE TABLE IF NOT EXISTS bars (
   donchian20_lower_prev DOUBLE,
   donchian20_basis_prev DOUBLE,
   donchian20_width_h1atr DOUBLE,
+  donchian20_width_points DOUBLE,
+  donchian20_width_ema9 DOUBLE,
+  donchian20_width_slope DOUBLE,
   atr_h1_value DOUBLE,
   cci20 DOUBLE,
   cci50 DOUBLE,
+  roc_points DOUBLE,
+  roc_h1atr DOUBLE,
   hh7_high_event BOOLEAN,
   hh7_low_event BOOLEAN,
+  hh7_high_atr_times DOUBLE,
+  hh7_low_atr_times DOUBLE,
+  channel_fresh_high BOOLEAN,
+  channel_fresh_low BOOLEAN,
+  channel_dual_touch BOOLEAN,
   edge_bullish BOOLEAN,
   edge_bearish BOOLEAN,
   d1_inside_status_asof VARCHAR,
@@ -319,8 +331,75 @@ CREATE TABLE IF NOT EXISTS entry_features (
   checkpoint_id BIGINT NOT NULL,
   manifest_hash VARCHAR NOT NULL,
   definition_version VARCHAR NOT NULL,
+  entry_bar_observed_at_et VARCHAR,
+  entry_bar_close DOUBLE,
+  entry_bar_trigger_price DOUBLE,
+  entry_bar_original_breakout_price DOUBLE,
+  entry_bar_close_to_trigger_h1atr DOUBLE,
+  entry_bar_close_to_donchian_h1atr DOUBLE,
+  entry_bar_directional_cci DOUBLE,
+  entry_bar_directional_roc DOUBLE,
+  entry_bar_donchian_width_h1atr DOUBLE,
+  entry_bar_donchian_width_slope DOUBLE,
+  entry_bar_hh7_magnitude_h1atr DOUBLE,
+  entry_bar_hh7_category VARCHAR,
+  entry_bar_hh7_present VARCHAR,
+  entry_bar_close_confirmation_trigger VARCHAR,
+  entry_bar_close_beyond_trigger VARCHAR,
+  entry_bar_close_confirmation_donchian VARCHAR,
+  entry_bar_close_beyond_donchian VARCHAR,
+  entry_bar_directional_cci_category VARCHAR,
+  entry_bar_directional_roc_category VARCHAR,
+  entry_bar_width_category VARCHAR,
+  entry_bar_width_slope_category VARCHAR,
+  entry_bar_hh7_magnitude_category VARCHAR,
+  entry_bar_edge_alignment_category VARCHAR,
+  entry_bar_channel_context_category VARCHAR,
+  entry_bar_inside_day_category VARCHAR,
+  entry_bar_data_status VARCHAR,
   PRIMARY KEY (run_id, parent_trade_id)
 );
+`;
+
+const migrationSql = `
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS donchian20_upper_prev DOUBLE;
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS donchian20_lower_prev DOUBLE;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS donchian20_width_points DOUBLE;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS donchian20_width_ema9 DOUBLE;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS donchian20_width_slope DOUBLE;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS roc_points DOUBLE;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS roc_h1atr DOUBLE;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS hh7_high_atr_times DOUBLE;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS hh7_low_atr_times DOUBLE;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS channel_fresh_high BOOLEAN;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS channel_fresh_low BOOLEAN;
+ALTER TABLE bars ADD COLUMN IF NOT EXISTS channel_dual_touch BOOLEAN;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_observed_at_et VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_close DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_trigger_price DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_original_breakout_price DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_close_to_trigger_h1atr DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_close_to_donchian_h1atr DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_directional_cci DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_directional_roc DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_donchian_width_h1atr DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_donchian_width_slope DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_hh7_magnitude_h1atr DOUBLE;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_hh7_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_hh7_present VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_close_confirmation_trigger VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_close_beyond_trigger VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_close_confirmation_donchian VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_close_beyond_donchian VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_directional_cci_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_directional_roc_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_width_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_width_slope_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_hh7_magnitude_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_edge_alignment_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_channel_context_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_inside_day_category VARCHAR;
+ALTER TABLE entry_features ADD COLUMN IF NOT EXISTS entry_bar_data_status VARCHAR;
 `;
 
 type AnalyticsGlobal = {
@@ -354,8 +433,9 @@ export async function ensureAnalyticsSchema(): Promise<void> {
     const connection = await (await instance()).connect();
     try {
       await connection.run(schemaSql);
+      await connection.run(migrationSql);
       await connection.run(attributeRegistrySeedSql());
-      await connection.run(`INSERT OR REPLACE INTO entry_features ${entryFeaturesSelectSql()}`);
+      await connection.run(entryFeaturesInsertSql());
     } finally {
       connection.closeSync();
     }

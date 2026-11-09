@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApi } from "@/lib/use-api";
 import { CalendarPerformance } from "@/components/calendar-insights";
-import type { CalendarResponse } from "@/lib/calendar-insights";
+import { shiftCalendarMonth, type CalendarResponse } from "@/lib/calendar-insights";
 import Loading from "@/app/loading";
 
 export default function CalendarPage() {
@@ -33,8 +33,7 @@ function CalendarView() {
     data?.calendar ?? { year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) };
 
   const shift = (delta: number) => {
-    const next = new Date(Date.UTC(month.year, month.month - 1 + delta, 1));
-    setMonth({ year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 });
+    setMonth(shiftCalendarMonth(month, delta));
   };
 
   return (

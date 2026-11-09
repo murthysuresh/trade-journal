@@ -6,6 +6,11 @@ import {
   type EntryAttributeDefinition,
 } from "./attributes";
 import { queryAnalytics } from "./duckdb";
+import {
+  getFollowThrough,
+  type ConfirmationReference,
+  type FollowHh7Requirement,
+} from "./follow-through";
 
 export interface CohortCondition {
   attributeKey: string;
@@ -35,6 +40,14 @@ export interface FunnelQuery {
   cohortA?: string;
   cohortB?: string;
   cohortFocus?: string;
+  confirmationReference?: string;
+  entryBarCciMin?: number;
+  entryBarRocMin?: number;
+  journeyFocus?: string;
+  journeyCategory?: string;
+  journeyOther?: string;
+  followHh7?: string;
+  observationBar?: number;
   page?: number;
   pageSize?: number;
   sort?: string;
@@ -127,6 +140,22 @@ function tradeWhere(query: FunnelQuery, includeStage: boolean, includeSelection 
       addCohortConditions(clauses, values, parseCohortConditions(query.cohortA));
     if (query.cohortFocus === "B")
       addCohortConditions(clauses, values, parseCohortConditions(query.cohortB));
+    const cciThreshold = finite(query.entryBarCciMin) ? query.entryBarCciMin : 100;
+    const rocThreshold = finite(query.entryBarRocMin) ? query.entryBarRocMin : 0;
+    if (query.journeyFocus === "cci") {
+      if (query.journeyCategory === "CONFIRMED")
+        add("ef.entry_bar_directional_cci >= ?", cciThreshold);
+      if (query.journeyCategory === "NOT_CONFIRMED")
+        add("ef.entry_bar_directional_cci < ?", cciThreshold);
+      if (query.journeyCategory === "UNKNOWN") add("ef.entry_bar_directional_cci IS NULL");
+    }
+    if (query.journeyFocus === "roc") {
+      if (query.journeyCategory === "CONFIRMED")
+        add("ef.entry_bar_directional_roc >= ?", rocThreshold);
+      if (query.journeyCategory === "NOT_CONFIRMED")
+        add("ef.entry_bar_directional_roc < ?", rocThreshold);
+      if (query.journeyCategory === "UNKNOWN") add("ef.entry_bar_directional_roc IS NULL");
+    }
   }
   return { sql: clauses.join(" AND "), values };
 }
@@ -189,6 +218,9 @@ const sortColumns: Record<string, string> = {
   grossAtr: "t.gross_atr_outcome",
   duration: "t.holding_duration_seconds",
   outcome: "t.outcome_category",
+  entryBarCci: "ef.entry_bar_directional_cci",
+  entryBarRoc: "ef.entry_bar_directional_roc",
+  entryBarDistance: "ef.entry_bar_close_to_trigger_h1atr",
 };
 
 const metricProjection = (sourceField?: string): string => `
@@ -206,7 +238,8 @@ const metricProjection = (sourceField?: string): string => `
   COUNT(DISTINCT t.parent_trade_id) FILTER (
     WHERE t.outcome_complete IS DISTINCT FROM true
       AND NOT (t.outcome_status = 'OPEN_AT_CHECKPOINT' OR t.outcome_category = 'OPEN')
-  ) AS incomplete_outcomes${
+  ) AS incomplete_outcomes,
+  LIST(DISTINCT t.parent_trade_id ORDER BY t.parent_trade_id) AS parent_ids${
     sourceField
       ? `,
   COUNT(DISTINCT t.parent_trade_id) FILTER (
@@ -245,6 +278,7 @@ function normalizeMetrics(row: Record<string, unknown> | undefined) {
     invalidData: num(source, "invalid_data"),
     openOutcomes: num(source, "open_outcomes"),
     incompleteOutcomes: num(source, "incomplete_outcomes"),
+    parentIds: Array.isArray(source.parent_ids) ? source.parent_ids.map(String) : [],
   };
 }
 
@@ -253,6 +287,115 @@ function cohortWhere(base: ReturnType<typeof tradeWhere>, conditions: CohortCond
   const values = [...base.values];
   addCohortConditions(clauses, values, conditions);
   return { sql: clauses.join(" AND "), values };
+}
+
+type JourneyDimension = {
+  id: string;
+  label: string;
+  expression: string;
+  domain: string[];
+  sourceField?: string;
+  attributeKey?: string;
+};
+
+async function getJourneyBranches(query: FunnelQuery, base: ReturnType<typeof tradeWhere>) {
+  const reference: ConfirmationReference =
+    query.confirmationReference === "donchian" ? "donchian" : "trigger";
+  const cciThreshold = finite(query.entryBarCciMin) ? query.entryBarCciMin : 100;
+  const rocThreshold = finite(query.entryBarRocMin) ? query.entryBarRocMin : 0;
+  const confirmationField =
+    reference === "donchian"
+      ? "entry_bar_close_confirmation_donchian"
+      : "entry_bar_close_confirmation_trigger";
+  const other =
+    ENTRY_ATTRIBUTE_BY_KEY.get(query.journeyOther ?? "") ??
+    ENTRY_ATTRIBUTE_BY_KEY.get("entry_bar_width_slope_category")!;
+  const definitions: JourneyDimension[] = [
+    {
+      id: "hh7",
+      label: "Entry-bar HH7 direction",
+      expression: "ef.entry_bar_hh7_category",
+      sourceField: "entry_bar_hh7_category",
+      attributeKey: "entry_bar_hh7_category",
+      domain: [...(ENTRY_ATTRIBUTE_DOMAINS.entry_bar_hh7_category ?? [])],
+    },
+    {
+      id: "confirmation",
+      label:
+        reference === "donchian"
+          ? "Close vs frozen original Donchian band"
+          : "Close vs frozen penetration-adjusted trigger",
+      expression: `ef.${confirmationField}`,
+      sourceField: confirmationField,
+      attributeKey: confirmationField,
+      domain: [...(ENTRY_ATTRIBUTE_DOMAINS[confirmationField] ?? [])],
+    },
+    {
+      id: "cci",
+      label: `Directional CCI20 ≥ ${cciThreshold}`,
+      expression: `CASE WHEN ef.entry_bar_directional_cci IS NULL THEN 'UNKNOWN'
+                        WHEN ef.entry_bar_directional_cci >= ${cciThreshold} THEN 'CONFIRMED'
+                        ELSE 'NOT_CONFIRMED' END`,
+      domain: ["CONFIRMED", "NOT_CONFIRMED", "UNKNOWN"],
+    },
+    {
+      id: "roc",
+      label: `Directional ROC / H1 ATR ≥ ${rocThreshold}`,
+      expression: `CASE WHEN ef.entry_bar_directional_roc IS NULL THEN 'UNKNOWN'
+                        WHEN ef.entry_bar_directional_roc >= ${rocThreshold} THEN 'CONFIRMED'
+                        ELSE 'NOT_CONFIRMED' END`,
+      domain: ["CONFIRMED", "NOT_CONFIRMED", "UNKNOWN"],
+    },
+    {
+      id: "other",
+      label: other.display_name,
+      expression: `ef."${other.source_field}"`,
+      sourceField: other.source_field,
+      attributeKey: other.attribute_key,
+      domain: [...(ENTRY_ATTRIBUTE_DOMAINS[other.attribute_key] ?? [])],
+    },
+  ];
+  const results = await Promise.all(
+    definitions.map((definition) =>
+      queryAnalytics(
+        `SELECT COALESCE(${definition.expression}, 'UNKNOWN') AS category,
+                ${metricProjection(definition.sourceField)}
+           FROM trades t JOIN entry_features ef USING (run_id, parent_trade_id)
+          WHERE ${base.sql}
+          GROUP BY category ORDER BY executed DESC, category`,
+        base.values,
+      ),
+    ),
+  );
+  return {
+    definitionVersion: "entry-confirmation-journey-v1",
+    reference,
+    referenceLabel:
+      reference === "donchian"
+        ? "Frozen original Donchian band"
+        : "Frozen penetration-adjusted trigger",
+    cciThreshold,
+    rocThreshold,
+    note: "Branch order is an analytical grouping choice. Entry-bar HH7, close, CCI, ROC, width, and context are simultaneous POST_ENTRY_BAR_CLOSE observations.",
+    dimensions: definitions.map((definition, index) => {
+      const byCategory = new Map(
+        results[index]!.map((row) => [String(row.category ?? "UNKNOWN"), normalizeMetrics(row)]),
+      );
+      const categories = [
+        ...definition.domain,
+        ...[...byCategory.keys()].filter((category) => !definition.domain.includes(category)),
+      ];
+      return {
+        id: definition.id,
+        label: definition.label,
+        attributeKey: definition.attributeKey ?? null,
+        categories: categories.map((category) => ({
+          category,
+          ...(byCategory.get(category) ?? normalizeMetrics(undefined)),
+        })),
+      };
+    }),
+  };
 }
 
 export async function getFunnelData(query: FunnelQuery) {
@@ -268,6 +411,7 @@ export async function getFunnelData(query: FunnelQuery) {
   const signal = signalWhere(normalized, "signal");
   const opportunity = signalWhere(normalized, "opportunity");
   const stage = tradeWhere(normalized, true, true);
+  const selectedCohort = tradeWhere(normalized, false, true);
   const page = Math.max(1, Math.floor(query.page ?? 1));
   const pageSize = Math.min(100, Math.max(10, Math.floor(query.pageSize ?? 25)));
   const sort = sortColumns[query.sort ?? "entryTime"] ?? sortColumns.entryTime!;
@@ -397,6 +541,13 @@ export async function getFunnelData(query: FunnelQuery) {
            t.parent_trade_id, t.entry_time_et, t.exit_time_et, t.direction, t.f_stage,
            t.entry_origin, t.entry_width20_h1atr, t.entry_directional_cci,
            ef.hh7_entry_category, ef.hh7_present_at_entry,
+           ef.entry_bar_hh7_category, ef.entry_bar_close_confirmation_trigger,
+           ef.entry_bar_close_confirmation_donchian,
+           ef.entry_bar_close_to_trigger_h1atr, ef.entry_bar_close_to_donchian_h1atr,
+           ef.entry_bar_directional_cci, ef.entry_bar_directional_roc,
+           ef.entry_bar_donchian_width_h1atr, ef.entry_bar_donchian_width_slope,
+           ef.entry_bar_hh7_magnitude_h1atr, ef.entry_bar_edge_alignment_category,
+           ef.entry_bar_channel_context_category, ef.entry_bar_inside_day_category,
            t.b0_observed, t.b0_entry_weak, t.b1_observed, t.b1_w1_weak,
            t.b1_action_eligible, t.t1_fully_filled, t.t2_fully_filled, t.t3_fully_filled,
            t.gross_atr_outcome, t.outcome_category, t.exit_classification,
@@ -407,6 +558,23 @@ export async function getFunnelData(query: FunnelQuery) {
          LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
       stage.values,
     ),
+  ]);
+
+  const reference: ConfirmationReference =
+    normalized.confirmationReference === "donchian" ? "donchian" : "trigger";
+  const hh7Requirement: FollowHh7Requirement = ["with-direction", "present", "absent"].includes(
+    normalized.followHh7 ?? "",
+  )
+    ? (normalized.followHh7 as FollowHh7Requirement)
+    : "ignore";
+  const [journey, followThrough] = await Promise.all([
+    getJourneyBranches(normalized, trade),
+    getFollowThrough(selectedCohort.sql, selectedCohort.values, {
+      reference,
+      cciThreshold: finite(normalized.entryBarCciMin) ? normalized.entryBarCciMin : 100,
+      rocThreshold: finite(normalized.entryBarRocMin) ? normalized.entryBarRocMin : 0,
+      hh7Requirement,
+    }),
   ]);
 
   const accepted = num(signalRows[0] ?? {}, "n");
@@ -522,10 +690,15 @@ export async function getFunnelData(query: FunnelQuery) {
       A: { conditions: cohortAConditions, ...normalizeMetrics(cohortARows[0]) },
       B: { conditions: cohortBConditions, ...normalizeMetrics(cohortBRows[0]) },
     },
+    journey,
+    followThrough,
     activeSelection: {
       category: query.category ?? null,
       cohortFocus:
         query.cohortFocus === "A" || query.cohortFocus === "B" ? query.cohortFocus : null,
+      journeyFocus:
+        query.journeyFocus === "cci" || query.journeyFocus === "roc" ? query.journeyFocus : null,
+      journeyCategory: query.journeyCategory ?? null,
     },
     table: {
       rows: tableRows,
@@ -533,6 +706,54 @@ export async function getFunnelData(query: FunnelQuery) {
       page,
       pageSize,
     },
+  };
+}
+
+export async function getTradeNavigation(
+  query: FunnelQuery,
+  parentTradeId: string,
+): Promise<{
+  previousParentTradeId: string | null;
+  nextParentTradeId: string | null;
+  position: number | null;
+  total: number;
+  sort: string;
+  order: "asc" | "desc";
+}> {
+  const stage = tradeWhere(query, true, true);
+  const requestedSort = query.sort ?? "entryTime";
+  const sortKey = sortColumns[requestedSort] ? requestedSort : "entryTime";
+  const sort = sortColumns[sortKey]!;
+  const order = query.order === "asc" ? "asc" : "desc";
+  const orderSql = `${sort} ${order.toUpperCase()} NULLS LAST, t.parent_trade_id ASC`;
+  const rows = await queryAnalytics(
+    `WITH ordered AS (
+       SELECT
+         t.parent_trade_id,
+         LAG(t.parent_trade_id) OVER (ORDER BY ${orderSql}) AS previous_parent_trade_id,
+         LEAD(t.parent_trade_id) OVER (ORDER BY ${orderSql}) AS next_parent_trade_id,
+         ROW_NUMBER() OVER (ORDER BY ${orderSql}) AS position
+       FROM trades t JOIN entry_features ef USING (run_id, parent_trade_id)
+       WHERE ${stage.sql}
+     ), selected AS (
+       SELECT * FROM ordered WHERE parent_trade_id = ?
+     )
+     SELECT selected.previous_parent_trade_id, selected.next_parent_trade_id, selected.position,
+            (SELECT COUNT(*) FROM ordered) AS filtered_total
+     FROM (VALUES (1)) seed(value)
+     LEFT JOIN selected ON true`,
+    [...stage.values, parentTradeId],
+  );
+  const row = rows[0] ?? {};
+  const id = (value: unknown): string | null =>
+    value === null || value === undefined ? null : String(value);
+  return {
+    previousParentTradeId: id(row.previous_parent_trade_id),
+    nextParentTradeId: id(row.next_parent_trade_id),
+    position: nullableNum(row.position),
+    total: num(row, "filtered_total"),
+    sort: sortKey,
+    order,
   };
 }
 
@@ -552,10 +773,92 @@ export async function getImportStatus() {
   return { runs, attempts };
 }
 
-export async function getTradeChart(runId: string, parentTradeId: string) {
+type TradeChartOptions = { cutoff?: "b0" };
+
+const redactTradeAtB0 = (
+  trade: Record<string, unknown>,
+  fills: Record<string, unknown>[],
+  researchCount: number,
+  cutoffAtEt: string,
+): Record<string, unknown> => {
+  const quantity = (fill: Record<string, unknown>): number => Number(fill.quantity) || 0;
+  const entryQuantity = fills
+    .filter((fill) => fill.order_role === "ENTRY")
+    .reduce((sum, fill) => sum + quantity(fill), 0);
+  const closingFills = fills.filter((fill) =>
+    ["TARGET", "STOP", "EXIT"].includes(String(fill.order_role)),
+  );
+  const closingQuantity = closingFills.reduce((sum, fill) => sum + quantity(fill), 0);
+  const averageClosingPrice = closingQuantity
+    ? closingFills.reduce((sum, fill) => sum + quantity(fill) * Number(fill.price), 0) /
+      closingQuantity
+    : null;
+  const targetComplete = (stage: number): boolean => {
+    const stageEntry = fills
+      .filter((fill) => fill.order_role === "ENTRY" && Number(fill.target_stage) === stage)
+      .reduce((sum, fill) => sum + quantity(fill), 0);
+    const stageTarget = fills
+      .filter((fill) => fill.order_role === "TARGET" && Number(fill.target_stage) === stage)
+      .reduce((sum, fill) => sum + quantity(fill), 0);
+    return stageEntry > 0 && stageTarget + 0.000000001 >= stageEntry;
+  };
+
+  return {
+    ...trade,
+    exit_time_et: null,
+    outcome_status: "HIDDEN_UNTIL_REVEAL",
+    outcome_complete: null,
+    parent_status: "ACTIVE_AT_B0",
+    parent_fault: null,
+    orders_settled: null,
+    reconciliation_detail: null,
+    exit_reason: null,
+    exit_classification: null,
+    research_coverage_status: "OBSERVED_THROUGH_B0",
+    research_snapshot_count: researchCount,
+    b1_observed: false,
+    b1_w1_weak: null,
+    b1_weak_legacy: null,
+    b1_action_eligible: null,
+    b1_available_at_et: null,
+    second_thrust_failure: null,
+    entry_quantity: entryQuantity,
+    closing_quantity: closingQuantity,
+    average_closing_price: averageClosingPrice,
+    gross_price_outcome: null,
+    gross_price_per_unit: null,
+    gross_atr_outcome: null,
+    outcome_category: "HIDDEN",
+    holding_duration_seconds: null,
+    t1_fully_filled: targetComplete(1),
+    t2_fully_filled: targetComplete(2),
+    t3_fully_filled: targetComplete(3),
+    source_outcome_revision: null,
+    source_event_sequence: null,
+    terminal_event_id: null,
+    outcome_revealed: false,
+    evidence_cutoff_at_et: cutoffAtEt,
+  };
+};
+
+export async function getTradeChart(
+  runId: string,
+  parentTradeId: string,
+  options: TradeChartOptions = {},
+) {
   const trades = await queryAnalytics(
     `SELECT t.*, ef.hh7_entry_category, ef.hh7_present_at_entry,
             ef.hh7_high_known_at_signal, ef.hh7_low_known_at_signal,
+            ef.entry_bar_observed_at_et, ef.entry_bar_close,
+            ef.entry_bar_trigger_price, ef.entry_bar_original_breakout_price,
+            ef.entry_bar_close_to_trigger_h1atr, ef.entry_bar_close_to_donchian_h1atr,
+            ef.entry_bar_directional_cci, ef.entry_bar_directional_roc,
+            ef.entry_bar_donchian_width_h1atr, ef.entry_bar_donchian_width_slope,
+            ef.entry_bar_hh7_magnitude_h1atr, ef.entry_bar_hh7_category,
+            ef.entry_bar_hh7_present, ef.entry_bar_close_confirmation_trigger,
+            ef.entry_bar_close_confirmation_donchian, ef.entry_bar_edge_alignment_category,
+            ef.entry_bar_channel_context_category, ef.entry_bar_inside_day_category,
+            ef.entry_bar_data_status,
             ef.feature_cutoff_et AS entry_feature_cutoff_et,
             ef.definition_version AS entry_feature_definition_version
      FROM trades t JOIN entry_features ef USING (run_id, parent_trade_id)
@@ -564,6 +867,31 @@ export async function getTradeChart(runId: string, parentTradeId: string) {
   );
   const trade = trades[0];
   if (!trade) return null;
+  const cutoffRows = await queryAnalytics(
+    `WITH first_b0 AS (
+       SELECT event_sequence, event_id, available_at_et
+       FROM trade_research
+       WHERE run_id = ? AND parent_trade_id = ? AND bar_age = 0
+       ORDER BY event_sequence, event_id LIMIT 1
+     )
+     SELECT b0.event_sequence, b0.available_at_et,
+            COALESCE(SUM(CASE
+              WHEN f.event_sequence > b0.event_sequence THEN 0
+              WHEN f.order_role = 'ENTRY' THEN f.quantity
+              WHEN f.order_role IN ('TARGET', 'STOP', 'EXIT') THEN -f.quantity
+              ELSE 0
+            END), 0) AS remaining_quantity_at_b0
+     FROM first_b0 b0
+     LEFT JOIN trade_fills f ON f.run_id = ? AND f.parent_trade_id = ?
+     GROUP BY ALL`,
+    [runId, parentTradeId, runId, parentTradeId],
+  );
+  const similarityEligible =
+    Boolean(cutoffRows[0]?.event_sequence && cutoffRows[0]?.available_at_et) &&
+    Number(cutoffRows[0]?.remaining_quantity_at_b0) > 0;
+  const applyB0Cutoff = options.cutoff === "b0" && similarityEligible;
+  const cutoffSequence = applyB0Cutoff ? cutoffRows[0]?.event_sequence : undefined;
+  const cutoffAtEt = applyB0Cutoff ? String(cutoffRows[0]!.available_at_et) : null;
   const sequenceRows = await queryAnalytics(
     `SELECT
        MIN(CASE WHEN b.bar_id = t.signal_bar_id THEN b.bar_sequence END) AS entry_sequence,
@@ -585,26 +913,46 @@ export async function getTradeChart(runId: string, parentTradeId: string) {
     );
     entrySequence = nullableNum(fallback[0]?.entry_sequence);
   }
+  const fillCutoffSql = cutoffSequence ? " AND event_sequence <= TRY_CAST(? AS BIGINT)" : "";
+  const fillValues = cutoffSequence
+    ? [runId, parentTradeId, String(cutoffSequence)]
+    : [runId, parentTradeId];
   const [fills, research] = await Promise.all([
     queryAnalytics(
-      `SELECT event_id, execution_id, event_time_et, bar_id, direction, order_role,
+      `SELECT event_id, event_sequence, execution_id, event_time_et, bar_id, direction, order_role,
               target_stage, price, quantity
        FROM trade_fills WHERE run_id = ? AND parent_trade_id = ?
+       ${fillCutoffSql}
        ORDER BY event_sequence`,
-      [runId, parentTradeId],
+      fillValues,
     ),
     queryAnalytics(
-      `SELECT event_id, bar_id, feature_cutoff_et, available_at_et, bar_age,
+      `SELECT event_id, event_sequence, bar_id, feature_cutoff_et, available_at_et, bar_age,
+              directional_cci, directional_roc,
               condition_entry_weak, condition_b1_w1, thrust_state,
               thrust_confirmed_this_bar, confirmed_thrust_fail_nonpositive,
               confirmed_thrust_fail_positive, action_eligible
-       FROM trade_research WHERE run_id = ? AND parent_trade_id = ? ORDER BY event_sequence`,
-      [runId, parentTradeId],
+       FROM trade_research WHERE run_id = ? AND parent_trade_id = ?
+       ${fillCutoffSql}
+       ORDER BY event_sequence`,
+      fillValues,
     ),
   ]);
+  const visibleTrade =
+    cutoffAtEt && applyB0Cutoff
+      ? {
+          ...redactTradeAtB0(trade, fills, research.length, cutoffAtEt),
+          similarity_eligible: true,
+        }
+      : {
+          ...trade,
+          outcome_revealed: true,
+          evidence_cutoff_at_et: null,
+          similarity_eligible: similarityEligible,
+        };
   if (entrySequence === null)
     return {
-      trade,
+      trade: visibleTrade,
       fills,
       research,
       fStageSignals: [],
@@ -615,31 +963,41 @@ export async function getTradeChart(runId: string, parentTradeId: string) {
   // Three complete 24-hour M15 trading days of pre-entry chart context.
   const from = Math.max(0, entrySequence - 3 * 24 * 4);
   const to = Math.max(entrySequence + 80, (exitSequence ?? entrySequence + 160) + 8);
+  const barCutoffSql = cutoffAtEt
+    ? " AND TRY_CAST(COALESCE(observed_at_et, bar_close_et) AS TIMESTAMPTZ) <= TRY_CAST(? AS TIMESTAMPTZ)"
+    : "";
+  const chartValues = cutoffAtEt ? [runId, from, to, cutoffAtEt] : [runId, from, to];
   const [bars, fStageSignals] = await Promise.all([
     queryAnalytics(
       `SELECT bar_id, bar_sequence, bar_open_et, bar_close_et, observed_at_et,
               open, high, low, close, volume, donchian20_upper_prev, donchian20_lower_prev,
-              donchian20_basis_prev,
-              cci20, hh7_high_event, hh7_low_event, edge_bullish, edge_bearish
-       FROM bars WHERE run_id = ? AND bar_sequence BETWEEN ? AND ? ORDER BY bar_sequence`,
-      [runId, from, to],
+              donchian20_basis_prev, donchian20_width_h1atr, donchian20_width_slope,
+              cci20, roc_h1atr, hh7_high_event, hh7_low_event,
+              hh7_high_atr_times, hh7_low_atr_times,
+              edge_bullish, edge_bearish, channel_fresh_high, channel_fresh_low,
+              channel_dual_touch, d1_inside_status_asof
+       FROM bars WHERE run_id = ? AND bar_sequence BETWEEN ? AND ?${barCutoffSql}
+       ORDER BY bar_sequence`,
+      chartValues,
     ),
     queryAnalytics(
       `SELECT o.opportunity_id, o.signal_time_et, o.signal_bar_id, o.direction,
               o.strategy_f_raw, o.strategy_f_display, o.trigger_price,
-              o.upper_trigger, o.lower_trigger, o.entry_origin,
+              o.upper_trigger, o.lower_trigger, o.donchian20_upper_prev,
+              o.donchian20_lower_prev, o.entry_origin,
               t.parent_trade_id,
               CASE WHEN t.parent_trade_id IS NOT NULL THEN true ELSE false END AS executed
        FROM opportunities o
        JOIN bars b ON b.run_id = o.run_id AND b.bar_id = o.signal_bar_id
        LEFT JOIN trades t ON t.run_id = o.run_id AND t.opportunity_id = o.opportunity_id
-       WHERE o.run_id = ? AND b.bar_sequence BETWEEN ? AND ?
+        WHERE o.run_id = ? AND b.bar_sequence BETWEEN ? AND ?
+          ${cutoffAtEt ? "AND TRY_CAST(o.signal_time_et AS TIMESTAMPTZ) <= TRY_CAST(? AS TIMESTAMPTZ)" : ""}
        ORDER BY o.signal_time_et, o.opportunity_id`,
-      [runId, from, to],
+      chartValues,
     ),
   ]);
   return {
-    trade,
+    trade: visibleTrade,
     fills,
     research,
     fStageSignals,

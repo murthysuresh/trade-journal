@@ -23,6 +23,8 @@ import { TimeHeatmap } from "@/components/charts/time-heatmap";
 import {
   ArrowUpDown,
   CalendarCheck2,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Flame,
   Scale,
@@ -39,12 +41,13 @@ import { ReportPopulationSelect } from "@/components/report-population-select";
 import { MonetaryValue } from "@/components/privacy";
 import { Pnl } from "@/components/pnl";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HelpHint, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { postJson, useApi } from "@/lib/use-api";
-import type { CalendarPnlPoint } from "@/lib/calendar-insights";
+import { shiftCalendarMonth, type CalendarPnlPoint } from "@/lib/calendar-insights";
 import {
   reportTradeHref,
   type ReportPopulationKind,
@@ -103,6 +106,10 @@ export default function DashboardPage() {
 function Dashboard() {
   const { query } = useFilters();
   const params = useSearchParams();
+  const [calendarSelection, setCalendarSelection] = useState<{
+    year: number;
+    month: number;
+  } | null>(null);
   const population: ReportPopulationKind =
     params.get("population") === "playback" ? "playback" : "journal";
   const runId = params.get("run") ?? "";
@@ -111,8 +118,16 @@ function Dashboard() {
     dashboardParams.set("population", "playback");
     if (runId) dashboardParams.set("run", runId);
   }
+  if (calendarSelection) {
+    dashboardParams.set("calYear", String(calendarSelection.year));
+    dashboardParams.set("calMonth", String(calendarSelection.month));
+  }
   const dashboardQuery = dashboardParams.toString();
   const { data, loading, error, refresh } = useApi<StatsPayload>(`/api/stats?${dashboardQuery}`);
+  const shiftDashboardCalendar = (delta: number) => {
+    const current = calendarSelection ?? data?.calendar;
+    if (current) setCalendarSelection(shiftCalendarMonth(current, delta));
+  };
 
   return (
     <>
@@ -132,6 +147,7 @@ function Dashboard() {
         error={error}
         refresh={refresh}
         query={dashboardQuery}
+        onShiftCalendar={shiftDashboardCalendar}
       />
     </>
   );
@@ -143,12 +159,14 @@ function DashboardContent({
   error,
   refresh,
   query,
+  onShiftCalendar,
 }: {
   data: StatsPayload | null;
   loading: boolean;
   error: string | null;
   refresh: () => void;
   query: string;
+  onShiftCalendar: (delta: number) => void;
 }) {
   if (loading && !data) return <DashboardSkeleton />;
   if (!data)
@@ -535,12 +553,43 @@ function DashboardContent({
             content: (
               <Card className="h-full">
                 <CardHeader className="flex-row items-center justify-between">
-                  <CardTitle>
-                    {new Date(Date.UTC(data.calendar.year, data.calendar.month - 1)).toLocaleString(
-                      "en-US",
-                      { month: "long", year: "numeric", timeZone: "UTC" },
-                    )}
-                  </CardTitle>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label="Previous calendar month"
+                        onClick={() => onShiftCalendar(-1)}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <CardTitle className="min-w-36 text-center">
+                        {new Date(
+                          Date.UTC(data.calendar.year, data.calendar.month - 1),
+                        ).toLocaleString("en-US", {
+                          month: "long",
+                          year: "numeric",
+                          timeZone: "UTC",
+                        })}
+                      </CardTitle>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label="Next calendar month"
+                        onClick={() => onShiftCalendar(1)}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {data.calendar.monthTrades.toLocaleString()} closed {tradeNoun} this month ·{" "}
+                      {m.totalTrades.toLocaleString()} total in active filters
+                    </p>
+                  </div>
                   {!playback && (
                     <Link
                       href={`/calendar?${query}`}

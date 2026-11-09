@@ -45,6 +45,17 @@ const PerformanceTrendsReport = dynamic(
     ),
   },
 );
+const SessionCalendarReport = dynamic(
+  () =>
+    import("@/components/session-calendar-report").then((module) => module.SessionCalendarReport),
+  {
+    loading: () => (
+      <p role="status" className="py-6 text-sm text-muted-foreground">
+        Loading session calendar…
+      </p>
+    ),
+  },
+);
 interface Group extends GroupSummary {
   row: string;
   column: string;
@@ -316,7 +327,7 @@ function Reports() {
   }
   const reportQuery = reportParams.toString();
   const [mode, setMode] = useState<
-      "overview" | "trends" | "explorer" | "breakdown" | "cross" | "compare"
+      "overview" | "calendar" | "trends" | "explorer" | "breakdown" | "cross" | "compare"
     >("overview"),
     [primary, setPrimary] = useState<Dimension>("symbol"),
     [secondary, setSecondary] = useState<Dimension>("weekday");
@@ -344,6 +355,7 @@ function Reports() {
           {(
             [
               ["overview", "Overview"],
+              ["calendar", "Session calendar"],
               ["trends", "Performance trends"],
               ["explorer", "Trade explorer"],
               ["breakdown", "Breakdowns"],
@@ -365,6 +377,8 @@ function Reports() {
         <div key={mode} className="journal-report-section space-y-4" data-report-section={mode}>
           {mode === "overview" ? (
             <ReportOverview query={reportQuery} filters={values} />
+          ) : mode === "calendar" ? (
+            <SessionCalendarReport key={reportQuery} query={reportQuery} />
           ) : mode === "trends" ? (
             <PerformanceTrendsReport key={reportQuery} query={reportQuery} />
           ) : mode === "explorer" ? (

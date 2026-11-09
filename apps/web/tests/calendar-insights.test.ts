@@ -12,6 +12,8 @@ import {
   calendarRunningPnl,
   calendarScope,
   calendarTradeHref,
+  latestClosedTradeDay,
+  shiftCalendarMonth,
 } from "../src/lib/calendar-insights";
 
 describe("calendar running P&L", () => {
@@ -118,6 +120,36 @@ describe("calendar performance calculations", () => {
 });
 
 describe("calendar scope and drill-down", () => {
+  it("finds the latest populated playback day instead of defaulting to today", () => {
+    expect(
+      latestClosedTradeDay(
+        [
+          { status: "win", closedAt: "2025-01-02T23:00:00Z" },
+          { status: "loss", closedAt: "2026-09-16T03:00:00Z" },
+          { status: "open", closedAt: undefined },
+        ],
+        "America/New_York",
+        "2026-11-08",
+      ),
+    ).toBe("2026-09-15");
+    expect(latestClosedTradeDay([], "UTC", "2026-11-08")).toBe("2026-11-08");
+  });
+
+  it("moves backward and forward across calendar years", () => {
+    expect(shiftCalendarMonth({ year: 2026, month: 1 }, -1)).toEqual({
+      year: 2025,
+      month: 12,
+    });
+    expect(shiftCalendarMonth({ year: 2026, month: 12 }, 1)).toEqual({
+      year: 2027,
+      month: 1,
+    });
+    expect(shiftCalendarMonth({ year: 2026, month: 7 }, -3)).toEqual({
+      year: 2026,
+      month: 4,
+    });
+  });
+
   it("intersects month/range, including leap years and non-overlapping selections", () => {
     expect(
       calendarScope({ accounts: "a", from: "2024-02-10", to: "2024-03-10", tag: "plan" }, 2024, 2),

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { RequestError, requireValue } from "@/server/api";
-import { entryFeaturesSelectSql } from "./attributes";
+import { entryFeaturesInsertSql } from "./attributes";
 import { queryAnalytics, sqlText, withAnalyticsConnection, withAnalyticsWriter } from "./duckdb";
 import { newImportAttemptId, validateV5Source } from "./source";
 import type { ImportResult, V5Manifest } from "./types";
@@ -96,6 +96,8 @@ SELECT
   ${d("trigger_price")},
   ${d("upper_trigger")},
   ${d("lower_trigger")},
+  ${d("donchian20_upper_prev")},
+  ${d("donchian20_lower_prev")},
   ${d("entry_width20_h1atr")},
   ${d("entry_atr_h1")},
   ${d("cci20_at_signal")},
@@ -136,11 +138,21 @@ SELECT
   ${d("donchian20_lower_prev")},
   ${d("donchian20_basis_prev")},
   ${d("donchian20_width_h1atr")},
+  ${d("donchian20_width_points")},
+  ${d("donchian20_width_ema9")},
+  ${d("donchian20_width_slope")},
   ${d("atr_h1_value")},
   ${d("cci20")},
   ${d("cci50")},
+  ${d("roc_points")},
+  ${d("roc_h1atr")},
   ${b("hh7_high_event")},
   ${b("hh7_low_event")},
+  ${d("hh7_high_atr_times")},
+  ${d("hh7_low_atr_times")},
+  ${b("channel_fresh_high")},
+  ${b("channel_fresh_low")},
+  ${b("channel_dual_touch")},
   ${b("edge_bullish")},
   ${b("edge_bearish")},
   NULLIF(d1_inside_status_asof, ''),
@@ -468,8 +480,7 @@ SELECT
   terminal_event_id
 FROM base;
 
-INSERT INTO entry_features
-${entryFeaturesSelectSql(`t.run_id = ${run}`)};
+${entryFeaturesInsertSql(`t.run_id = ${run}`)};
 
 INSERT INTO analytics_runs VALUES (
   ${run},
@@ -558,7 +569,29 @@ export async function importTradingFunnels(sourcePath: string): Promise<ImportRe
       if (existing.length) {
         const checkpoint = numberOf(first(existing, "checkpoint_id"));
         const hash = String(first(existing, "manifest_hash") ?? "");
-        if (checkpoint === manifest.last_committed_checkpoint_id && hash === manifestHash) {
+        const sameCertifiedSnapshot =
+          checkpoint === manifest.last_committed_checkpoint_id && hash === manifestHash;
+        const entryBarCoverage = sameCertifiedSnapshot
+          ? await queryAnalytics(
+              `SELECT COUNT(*) AS parents,
+                      COUNT(*) FILTER (
+                        WHERE o.donchian20_upper_prev IS NOT NULL
+                          AND o.donchian20_lower_prev IS NOT NULL
+                          AND b.roc_h1atr IS NOT NULL
+                          AND b.donchian20_width_slope IS NOT NULL
+                      ) AS enriched
+                 FROM trades t
+                 LEFT JOIN opportunities o USING (run_id, opportunity_id)
+                 LEFT JOIN bars b ON b.run_id = t.run_id AND b.bar_id = t.signal_bar_id
+                WHERE t.run_id = ?`,
+              [manifest.run_id],
+            )
+          : [];
+        const needsEntryBarBackfill =
+          sameCertifiedSnapshot &&
+          numberOf(entryBarCoverage[0]?.parents) > 0 &&
+          numberOf(entryBarCoverage[0]?.enriched) < numberOf(entryBarCoverage[0]?.parents);
+        if (sameCertifiedSnapshot && !needsEntryBarBackfill) {
           await withAnalyticsConnection(async (connection) => {
             await connection.run(
               "UPDATE analytics_import_attempts SET status = 'UNCHANGED', completed_at = ? WHERE attempt_id = ?",
@@ -574,12 +607,13 @@ export async function importTradingFunnels(sourcePath: string): Promise<ImportRe
             counts: await summarizeRun(manifest.run_id),
           };
         }
-        requireValue(
-          manifest.last_committed_checkpoint_id > checkpoint,
-          checkpoint === manifest.last_committed_checkpoint_id
-            ? "This run/checkpoint conflicts with the already imported manifest."
-            : `Checkpoint ${manifest.last_committed_checkpoint_id} is older than imported checkpoint ${checkpoint}.`,
-        );
+        if (!needsEntryBarBackfill)
+          requireValue(
+            manifest.last_committed_checkpoint_id > checkpoint,
+            checkpoint === manifest.last_committed_checkpoint_id
+              ? "This run/checkpoint conflicts with the already imported manifest."
+              : `Checkpoint ${manifest.last_committed_checkpoint_id} is older than imported checkpoint ${checkpoint}.`,
+          );
       }
 
       await withAnalyticsConnection(async (connection) => {

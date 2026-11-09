@@ -16,7 +16,7 @@ import {
 } from "@luxalgo/journal-core";
 import { asc } from "drizzle-orm";
 import { accounts, db, playbooks } from "@/db";
-import { calendarRunningPnl } from "@/lib/calendar-insights";
+import { calendarRunningPnl, latestClosedTradeDay } from "@/lib/calendar-insights";
 import { handler, ok } from "@/server/api";
 import { getTimeZone, getCurrencyConversion } from "@/server/settings";
 import { currencyProjection } from "@/server/currency-conversion";
@@ -36,8 +36,11 @@ export const GET = handler(async (request: Request) => {
     const { metrics, days, equity } = computeOverview(trades, { timeZone, initialBalance });
     const currency = playback.currencies[0] ?? "USD";
     const today = dayKeyOf(new Date().toISOString(), timeZone);
-    const calendarYear = Number(url.searchParams.get("calYear") ?? today.slice(0, 4));
-    const calendarMonthNum = Number(url.searchParams.get("calMonth") ?? today.slice(5, 7));
+    const latestPlaybackDay = latestClosedTradeDay(trades, timeZone, today);
+    const calendarYear = Number(url.searchParams.get("calYear") ?? latestPlaybackDay.slice(0, 4));
+    const calendarMonthNum = Number(
+      url.searchParams.get("calMonth") ?? latestPlaybackDay.slice(5, 7),
+    );
     const calendarPrefix = `${calendarYear}-${String(calendarMonthNum).padStart(2, "0")}`;
     const calendarTrades = trades.filter(
       (trade) =>

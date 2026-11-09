@@ -9,7 +9,12 @@ import {
   targetFullyFilled,
 } from "../src/lib/trading-funnel-semantics";
 import { parseV5Manifest } from "../src/server/trading-funnels/source";
-import { classifyHh7Entry } from "../src/server/trading-funnels/attributes";
+import {
+  classifyBreakoutConfirmation,
+  classifyEntryBarHh7,
+  classifyHh7Entry,
+  signedCloseToReferenceH1Atr,
+} from "../src/server/trading-funnels/attributes";
 
 const fill = (overrides: Partial<Parameters<typeof dedupeAppliedFills>[0][number]> = {}) => ({
   runId: "a".repeat(32),
@@ -79,6 +84,28 @@ describe("Trading Funnel lifecycle semantics", () => {
     expect(classifyHh7Entry("LONG", null, false)).toBe("UNKNOWN");
     expect(classifyHh7Entry("LONG", true, true)).toBe("INVALID");
     expect(classifyHh7Entry("SIDEWAYS", true, false)).toBe("INVALID");
+  });
+
+  it("classifies completed entry-bar HH7 independently from signal-time HH7", () => {
+    expect(classifyEntryBarHh7("LONG", true, false)).toBe("WITH_DIRECTION");
+    expect(classifyEntryBarHh7("SHORT", true, false)).toBe("AGAINST_DIRECTION");
+    expect(classifyEntryBarHh7("LONG", false, false)).toBe("NONE");
+    expect(classifyEntryBarHh7("LONG", null, false)).toBe("UNKNOWN");
+    expect(classifyEntryBarHh7("SHORT", true, true)).toBe("INVALID");
+  });
+
+  it("uses a direction-signed close distance for trigger and band confirmation", () => {
+    expect(classifyBreakoutConfirmation("LONG", 1.101, 1.1)).toBe("BEYOND_TRIGGER");
+    expect(classifyBreakoutConfirmation("SHORT", 1.099, 1.1)).toBe("BEYOND_TRIGGER");
+    expect(classifyBreakoutConfirmation("LONG", 1.1, 1.1)).toBe("AT_TRIGGER");
+    expect(classifyBreakoutConfirmation("LONG", 1.1 - 1e-13, 1.1)).toBe("AT_TRIGGER");
+    expect(classifyBreakoutConfirmation("LONG", 1.1 - 2e-12, 1.1)).toBe("BEHIND_TRIGGER");
+    expect(classifyBreakoutConfirmation("LONG", 1.1 + 2e-12, 1.1)).toBe("BEYOND_TRIGGER");
+    expect(classifyBreakoutConfirmation("SHORT", 1.101, 1.1)).toBe("BEHIND_TRIGGER");
+    expect(classifyBreakoutConfirmation("UNKNOWN", 1.1, 1.1)).toBe("UNKNOWN");
+    expect(signedCloseToReferenceH1Atr("LONG", 1.102, 1.1, 0.004)).toBeCloseTo(0.5);
+    expect(signedCloseToReferenceH1Atr("SHORT", 1.098, 1.1, 0.004)).toBeCloseTo(0.5);
+    expect(signedCloseToReferenceH1Atr("LONG", 1.1, 1.1, 0)).toBeNull();
   });
 
   it("resets stepped session high/low at 5 PM America/New_York", () => {

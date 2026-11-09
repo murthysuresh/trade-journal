@@ -36,11 +36,17 @@ export function CalendarPnl({
   currency = "USD",
   monetary = true,
   runningPnl,
+  onDaySelect,
+  selectedDate,
+  itemNoun = "trade",
 }: {
   calendar: CalendarMonth;
   currency?: string;
   monetary?: boolean;
   runningPnl?: Record<string, CalendarPnlPoint[]>;
+  onDaySelect?: (date: string) => void;
+  selectedDate?: string | null;
+  itemNoun?: "trade" | "parent";
 }) {
   const maxAbs = Math.max(
     1,
@@ -65,6 +71,9 @@ export function CalendarPnl({
             currency={currency}
             monetary={monetary}
             runningPnl={runningPnl}
+            onDaySelect={onDaySelect}
+            selectedDate={selectedDate}
+            itemNoun={itemNoun}
           />
         ))}
       </div>
@@ -91,12 +100,18 @@ function CalendarWeekRow({
   currency,
   monetary,
   runningPnl,
+  onDaySelect,
+  selectedDate,
+  itemNoun,
 }: {
   week: CalendarMonth["weeks"][number];
   maxAbs: number;
   currency: string;
   monetary: boolean;
   runningPnl?: Record<string, CalendarPnlPoint[]>;
+  onDaySelect?: (date: string) => void;
+  selectedDate?: string | null;
+  itemNoun: "trade" | "parent";
 }) {
   const search = useSearchParams();
   const privacy = usePrivacy();
@@ -113,6 +128,47 @@ function CalendarWeekRow({
             : day.netPnl < 0
               ? "loss"
               : "neutral";
+        const ariaLabel = `${day.date}, ${!monetary ? "Multiple currencies" : privacy ? "P&L hidden" : fmtMoney(day.netPnl, currency)}, ${day.trades} ${itemNoun}${day.trades === 1 ? "" : "s"}`;
+        const className = cn(
+          "journal-calendar-day journal-calendar-day-link min-w-0 rounded-md border",
+          !traded && "border-transparent bg-muted/30",
+          selectedDate === day.date && "ring-2 ring-brand ring-offset-2 ring-offset-background",
+        );
+        const style =
+          traded && monetary
+            ? {
+                backgroundColor: `color-mix(in oklab, ${
+                  performance === "profit"
+                    ? "var(--profit-fill)"
+                    : performance === "loss"
+                      ? "var(--loss)"
+                      : "var(--neutral-mid)"
+                } ${Math.round(intensity * 100)}%, var(--card))`,
+              }
+            : undefined;
+        const content = (
+          <>
+            <div className="text-muted-foreground">{Number(day.date.slice(8))}</div>
+            {traded && (
+              <>
+                <div className="journal-calendar-full tnum font-medium">
+                  {monetary ? <MonetaryValue>{fmtMoney(day.netPnl, currency)}</MonetaryValue> : "—"}
+                </div>
+                <div className="journal-calendar-compact tnum font-medium">
+                  {monetary ? (
+                    <MonetaryValue>{compactMoney(day.netPnl, currency)}</MonetaryValue>
+                  ) : (
+                    "—"
+                  )}
+                </div>
+                <div className="journal-calendar-trades text-muted-foreground">
+                  {day.trades} {itemNoun}
+                  {day.trades === 1 ? "" : "s"}
+                </div>
+              </>
+            )}
+          </>
+        );
         return (
           <HoverHint
             key={day.date}
@@ -127,56 +183,34 @@ function CalendarWeekRow({
                   monetary={monetary}
                 />
               ) : (
-                `${!monetary ? "Multiple currencies" : privacy ? "P&L hidden" : fmtMoney(day.netPnl, currency)} · ${day.trades} trades`
+                `${!monetary ? "Multiple currencies" : privacy ? "P&L hidden" : fmtMoney(day.netPnl, currency)} · ${day.trades} ${itemNoun}${day.trades === 1 ? "" : "s"}`
               )
             }
           >
-            <Link
-              key={day.date}
-              href={`/journal/${day.date}?${search}`}
-              aria-label={`${day.date}, ${!monetary ? "Multiple currencies" : privacy ? "P&L hidden" : fmtMoney(day.netPnl, currency)}, ${day.trades} trades`}
-              className={cn(
-                "journal-calendar-day journal-calendar-day-link min-w-0 rounded-md border",
-                !traded && "border-transparent bg-muted/30",
-              )}
-              data-performance={performance}
-              style={
-                traded && monetary
-                  ? {
-                      backgroundColor: `color-mix(in oklab, ${
-                        performance === "profit"
-                          ? "var(--profit-fill)"
-                          : performance === "loss"
-                            ? "var(--loss)"
-                            : "var(--neutral-mid)"
-                      } ${Math.round(intensity * 100)}%, var(--card))`,
-                    }
-                  : undefined
-              }
-            >
-              <div className="text-muted-foreground">{Number(day.date.slice(8))}</div>
-              {traded && (
-                <>
-                  <div className="journal-calendar-full tnum font-medium">
-                    {monetary ? (
-                      <MonetaryValue>{fmtMoney(day.netPnl, currency)}</MonetaryValue>
-                    ) : (
-                      "—"
-                    )}
-                  </div>
-                  <div className="journal-calendar-compact tnum font-medium">
-                    {monetary ? (
-                      <MonetaryValue>{compactMoney(day.netPnl, currency)}</MonetaryValue>
-                    ) : (
-                      "—"
-                    )}
-                  </div>
-                  <div className="journal-calendar-trades text-muted-foreground">
-                    {day.trades} trade{day.trades === 1 ? "" : "s"}
-                  </div>
-                </>
-              )}
-            </Link>
+            {onDaySelect ? (
+              <button
+                type="button"
+                aria-label={ariaLabel}
+                aria-pressed={selectedDate === day.date}
+                disabled={!traded}
+                className={className}
+                data-performance={performance}
+                style={style}
+                onClick={() => onDaySelect(day.date)}
+              >
+                {content}
+              </button>
+            ) : (
+              <Link
+                href={`/journal/${day.date}?${search}`}
+                aria-label={ariaLabel}
+                className={className}
+                data-performance={performance}
+                style={style}
+              >
+                {content}
+              </Link>
+            )}
           </HoverHint>
         );
       })}
@@ -187,7 +221,10 @@ function CalendarWeekRow({
             {monetary && (
               <Pnl value={week.weekNetPnl} currency={currency} className="font-medium" />
             )}
-            <span className="text-muted-foreground">{week.weekTrades} trades</span>
+            <span className="text-muted-foreground">
+              {week.weekTrades} {itemNoun}
+              {week.weekTrades === 1 ? "" : "s"}
+            </span>
           </>
         ) : (
           <span className="text-muted-foreground">–</span>

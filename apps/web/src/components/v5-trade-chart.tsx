@@ -5,8 +5,14 @@ import type { EChartsOption } from "echarts";
 import { EChart } from "./charts/echart";
 import { parseV5Time, sessionHighLowSinceStart } from "@/lib/trading-funnel-semantics";
 import {
+  chartWindowPreference,
+  defaultChartViewport,
   hoverDetailsPreference,
   tooltipWithoutAxisHeader,
+  V5_CHART_WINDOW_EVENT,
+  V5_CHART_WINDOW_STORAGE_KEY,
+  V5_DEFAULT_CHART_WINDOW_PERCENT,
+  V5_HOVER_DETAILS_EVENT,
   V5_HOVER_DETAILS_STORAGE_KEY,
 } from "@/lib/v5-chart-ui";
 
@@ -66,16 +72,24 @@ export function V5TradeChart({
   fills,
   research,
   fStageSignals,
+  compact = false,
+  showParentLabels = false,
+  highlightedParentTradeIds,
 }: {
   trade: Row;
   bars: Row[];
   fills: Row[];
   research: Row[];
   fStageSignals: Row[];
+  compact?: boolean;
+  showParentLabels?: boolean;
+  highlightedParentTradeIds?: string[];
 }) {
   const chartGroup = `v5-evidence-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
-  const [viewport, setViewport] = useState<ChartViewport>({ start: 0, end: 100 });
-  const [showHoverDetails, setShowHoverDetails] = useState(true);
+  const [viewport, setViewport] = useState<ChartViewport>(() =>
+    defaultChartViewport(V5_DEFAULT_CHART_WINDOW_PERCENT),
+  );
+  const [showHoverDetails, setShowHoverDetails] = useState(false);
   useEffect(() => {
     const readPreference = () => {
       try {
@@ -83,7 +97,7 @@ export function V5TradeChart({
           hoverDetailsPreference(localStorage.getItem(V5_HOVER_DETAILS_STORAGE_KEY)),
         );
       } catch {
-        setShowHoverDetails(true);
+        setShowHoverDetails(false);
       }
     };
     readPreference();
@@ -91,13 +105,41 @@ export function V5TradeChart({
       if (event.key === V5_HOVER_DETAILS_STORAGE_KEY || event.key === null) readPreference();
     };
     window.addEventListener("storage", syncPreference);
-    return () => window.removeEventListener("storage", syncPreference);
+    window.addEventListener(V5_HOVER_DETAILS_EVENT, readPreference);
+    return () => {
+      window.removeEventListener("storage", syncPreference);
+      window.removeEventListener(V5_HOVER_DETAILS_EVENT, readPreference);
+    };
+  }, []);
+  useEffect(() => {
+    const readPreference = () => {
+      try {
+        setViewport(
+          defaultChartViewport(
+            chartWindowPreference(localStorage.getItem(V5_CHART_WINDOW_STORAGE_KEY)),
+          ),
+        );
+      } catch {
+        setViewport(defaultChartViewport(V5_DEFAULT_CHART_WINDOW_PERCENT));
+      }
+    };
+    readPreference();
+    const syncPreference = (event: StorageEvent) => {
+      if (event.key === V5_CHART_WINDOW_STORAGE_KEY || event.key === null) readPreference();
+    };
+    window.addEventListener("storage", syncPreference);
+    window.addEventListener(V5_CHART_WINDOW_EVENT, readPreference);
+    return () => {
+      window.removeEventListener("storage", syncPreference);
+      window.removeEventListener(V5_CHART_WINDOW_EVENT, readPreference);
+    };
   }, []);
   const toggleHoverDetails = () => {
     const next = !showHoverDetails;
     setShowHoverDetails(next);
     try {
       localStorage.setItem(V5_HOVER_DETAILS_STORAGE_KEY, String(next));
+      window.dispatchEvent(new Event(V5_HOVER_DETAILS_EVENT));
     } catch {
       // The control still works for this page when browser storage is unavailable.
     }
@@ -164,6 +206,65 @@ export function V5TradeChart({
     [chartBars],
   );
 
+  const fSignalMarkers = useMemo(() => {
+    const barById = new Map(chartBars.map((bar, index) => [bar.id, index]));
+    return fStageSignals.flatMap((signal) => {
+      const linkedIndex = barById.get(String(signal.signal_bar_id));
+      const index = linkedIndex ?? barIndexAt(signal.signal_time_et);
+      const stage = String(signal.strategy_f_display ?? "");
+      const displayStage = /^F(\d+)$/.exec(stage)?.[1];
+      const rawStage = number(signal.strategy_f_raw) ?? number(displayStage);
+      if (index < 0 || rawStage === null || !stage) return [];
+      const direction = String(signal.direction);
+      const selected = highlightedParentTradeIds
+        ? highlightedParentTradeIds.includes(String(signal.parent_trade_id))
+        : signal.parent_trade_id === trade.parent_trade_id;
+      return [
+        {
+          index,
+          stage,
+          direction,
+          selected,
+          entryOrigin: String(signal.entry_origin ?? "UNKNOWN"),
+        },
+      ];
+    });
+  }, [barIndexAt, chartBars, fStageSignals, highlightedParentTradeIds, trade.parent_trade_id]);
+  const fSignalGuides = useMemo(
+    () =>
+      fSignalMarkers.map((signal) => {
+        const directionColor = signal.direction === "LONG" ? "#57c78b" : "#e77b7b";
+        return {
+          name: `${signal.stage} · ${signal.direction} · ${signal.entryOrigin}`,
+          xAxis: labels[signal.index],
+          label: {
+            show: true,
+            formatter: signal.stage,
+            position: "insideEndTop" as const,
+            color: "#ffffff",
+            fontSize: 8,
+            fontWeight: "bold" as const,
+            backgroundColor: signal.selected ? "#52525b" : directionColor,
+            borderColor: signal.selected ? "#ffffff" : directionColor,
+            borderWidth: signal.selected ? 1 : 0,
+            borderRadius: 3,
+            padding: [2, 3],
+          },
+          lineStyle: {
+            color: signal.selected ? "#d4d4d8" : directionColor,
+            width: signal.selected ? 1.5 : 1,
+            type: "dashed" as const,
+            opacity: signal.selected ? 0.75 : 0.45,
+          },
+        };
+      }),
+    [fSignalMarkers, labels],
+  );
+  const quietFSignalGuides = useMemo(
+    () => fSignalGuides.map((guide) => ({ ...guide, label: { show: false } })),
+    [fSignalGuides],
+  );
+
   const primaryOption = useMemo<EChartsOption>(() => {
     const barById = new Map(chartBars.map((bar, index) => [bar.id, index]));
     const fillPoints = fills.flatMap((fill) => {
@@ -172,6 +273,7 @@ export function V5TradeChart({
       if (index < 0 || price === null) return [];
       const role = String(fill.order_role);
       const stage = fill.target_stage ? ` T${String(fill.target_stage)}` : "";
+      const parent = showParentLabels ? `${String(fill.chart_parent_label ?? "")} ` : "";
       const entry = role === "ENTRY";
       const target = role === "TARGET";
       return [
@@ -183,7 +285,7 @@ export function V5TradeChart({
           itemStyle: { color: entry ? "#2a78d6" : target ? "#23b26d" : "#e05252" },
           label: {
             show: true,
-            formatter: `${role}${stage} · ${String(fill.quantity)}`,
+            formatter: `${parent}${role}${stage} · ${String(fill.quantity)}`,
             position: entry ? "top" : "bottom",
             color: "#ffffff",
             fontSize: 9,
@@ -234,6 +336,7 @@ export function V5TradeChart({
       const thrust = observation.thrust_confirmed_this_bar === true;
       if (age !== 0 && age !== 1 && !thrust) return [];
       const tag = thrust ? "Thrust" : age === 0 ? "B0" : "B1";
+      const parent = showParentLabels ? `${String(observation.chart_parent_label ?? "")} ` : "";
       return [
         {
           value: [labels[index], chartBars[index]!.close],
@@ -242,7 +345,7 @@ export function V5TradeChart({
           itemStyle: { color: "#7057d8" },
           label: {
             show: true,
-            formatter: tag,
+            formatter: `${parent}${tag}`,
             position: "top",
             color: "#ffffff",
             fontSize: 8,
@@ -256,7 +359,7 @@ export function V5TradeChart({
     return {
       backgroundColor: "transparent",
       animation: false,
-      grid: { left: 58, right: 22, top: 16, bottom: 10 },
+      grid: { left: 58, right: 22, top: 16, bottom: 36 },
       tooltip: {
         trigger: "axis",
         showContent: showHoverDetails,
@@ -286,6 +389,21 @@ export function V5TradeChart({
           zoomOnMouseWheel: "ctrl",
           moveOnMouseWheel: false,
         },
+        {
+          type: "slider",
+          start: viewport.start,
+          end: viewport.end,
+          height: 16,
+          bottom: 5,
+          showDetail: false,
+          showDataShadow: false,
+          brushSelect: false,
+          borderColor: "#30303a",
+          backgroundColor: "#111116",
+          fillerColor: "rgba(42, 120, 214, 0.28)",
+          handleStyle: { color: "#737380", borderColor: "#a1a1aa" },
+          moveHandleStyle: { color: "#a1a1aa" },
+        },
       ],
       series: [
         {
@@ -298,6 +416,12 @@ export function V5TradeChart({
             color0: "#e05252",
             borderColor: "#23b26d",
             borderColor0: "#e05252",
+          },
+          markLine: {
+            silent: true,
+            symbol: "none",
+            label: { show: false },
+            data: quietFSignalGuides,
           },
         },
         {
@@ -347,41 +471,43 @@ export function V5TradeChart({
         },
       ],
     };
-  }, [barIndexAt, chartBars, fills, labels, research, sessionLevels, showHoverDetails, viewport]);
+  }, [
+    barIndexAt,
+    chartBars,
+    fills,
+    labels,
+    quietFSignalGuides,
+    research,
+    sessionLevels,
+    showHoverDetails,
+    showParentLabels,
+    viewport,
+  ]);
 
   const donchianOption = useMemo<EChartsOption>(() => {
-    const barById = new Map(chartBars.map((bar, index) => [bar.id, index]));
-    const stagePoints: object[] = fStageSignals.flatMap((signal) => {
-      const linkedIndex = barById.get(String(signal.signal_bar_id));
-      const index = linkedIndex ?? barIndexAt(signal.signal_time_et);
-      const stage = String(signal.strategy_f_display ?? "");
-      const displayStage = /^F(\d+)$/.exec(stage)?.[1];
-      const rawStage = number(signal.strategy_f_raw) ?? number(displayStage);
-      if (index < 0 || rawStage === null || !stage) return [];
-      const direction = String(signal.direction);
-      const selected = signal.parent_trade_id === trade.parent_trade_id;
-      return [
-        {
-          name: `${stage} · ${direction} · ${String(signal.entry_origin ?? "UNKNOWN")}`,
-          value: [labels[index], 1],
-          symbol: "rect",
-          symbolSize: selected ? [30, 16] : [28, 14],
-          itemStyle: {
-            color: "#708090",
-            borderColor: selected ? "#ffffff" : direction === "LONG" ? "#57c78b" : "#e77b7b",
-            borderWidth: selected ? 2 : 1,
-          },
-          label: {
-            show: true,
-            formatter: stage,
-            position: "inside",
-            color: "#ffffff",
-            fontSize: 9,
-            fontWeight: "bold",
-          },
-        },
-      ];
-    });
+    const stagePoints: object[] = fSignalMarkers.map((signal) => ({
+      name: `${signal.stage} · ${signal.direction} · ${signal.entryOrigin}`,
+      value: [labels[signal.index], 1],
+      symbol: "rect",
+      symbolSize: signal.selected ? [30, 16] : [28, 14],
+      itemStyle: {
+        color: "#708090",
+        borderColor: signal.selected
+          ? "#ffffff"
+          : signal.direction === "LONG"
+            ? "#57c78b"
+            : "#e77b7b",
+        borderWidth: signal.selected ? 2 : 1,
+      },
+      label: {
+        show: true,
+        formatter: signal.stage,
+        position: "inside",
+        color: "#ffffff",
+        fontSize: 9,
+        fontWeight: "bold",
+      },
+    }));
     const hh7HighPoints: object[] = chartBars.flatMap((bar) =>
       bar.hh7High
         ? [
@@ -425,8 +551,8 @@ export function V5TradeChart({
       backgroundColor: "transparent",
       animation: false,
       grid: [
-        { left: 58, right: 22, top: 34, bottom: 48 },
-        { left: 58, right: 22, height: 24, bottom: 8 },
+        { left: 58, right: 22, top: 34, bottom: 70 },
+        { left: 58, right: 22, height: 24, bottom: 34 },
       ],
       legend: {
         top: 4,
@@ -496,6 +622,22 @@ export function V5TradeChart({
           zoomOnMouseWheel: "ctrl",
           moveOnMouseWheel: false,
         },
+        {
+          type: "slider",
+          xAxisIndex: [0, 1],
+          start: viewport.start,
+          end: viewport.end,
+          height: 16,
+          bottom: 5,
+          showDetail: false,
+          showDataShadow: false,
+          brushSelect: false,
+          borderColor: "#30303a",
+          backgroundColor: "#111116",
+          fillerColor: "rgba(42, 120, 214, 0.28)",
+          handleStyle: { color: "#737380", borderColor: "#a1a1aa" },
+          moveHandleStyle: { color: "#a1a1aa" },
+        },
       ],
       series: [
         {
@@ -510,6 +652,11 @@ export function V5TradeChart({
             color0: "#e05252",
             borderColor: "#23b26d",
             borderColor0: "#e05252",
+          },
+          markLine: {
+            silent: true,
+            symbol: "none",
+            data: fSignalGuides,
           },
         },
         {
@@ -575,21 +722,13 @@ export function V5TradeChart({
         },
       ],
     };
-  }, [
-    barIndexAt,
-    chartBars,
-    fStageSignals,
-    labels,
-    showHoverDetails,
-    trade.parent_trade_id,
-    viewport,
-  ]);
+  }, [chartBars, fSignalGuides, fSignalMarkers, labels, showHoverDetails, viewport]);
 
   const cciOption = useMemo<EChartsOption>(
     () => ({
       backgroundColor: "transparent",
       animation: false,
-      grid: { left: 58, right: 22, top: 6, bottom: 32 },
+      grid: { left: 58, right: 22, top: 6, bottom: 54 },
       tooltip: {
         trigger: "axis",
         showContent: showHoverDetails,
@@ -616,6 +755,21 @@ export function V5TradeChart({
           zoomOnMouseWheel: "ctrl",
           moveOnMouseWheel: false,
         },
+        {
+          type: "slider",
+          start: viewport.start,
+          end: viewport.end,
+          height: 16,
+          bottom: 4,
+          showDetail: false,
+          showDataShadow: false,
+          brushSelect: false,
+          borderColor: "#30303a",
+          backgroundColor: "#111116",
+          fillerColor: "rgba(42, 120, 214, 0.28)",
+          handleStyle: { color: "#737380", borderColor: "#a1a1aa" },
+          moveHandleStyle: { color: "#a1a1aa" },
+        },
       ],
       series: [
         {
@@ -639,12 +793,13 @@ export function V5TradeChart({
               { yAxis: -100, lineStyle: { color: "#add8e6" } },
               { yAxis: -200, lineStyle: { color: "#5f9ea0" } },
               { yAxis: -300, lineStyle: { color: "#ffa500" } },
+              ...quietFSignalGuides,
             ],
           },
         },
       ],
     }),
-    [chartBars, labels, showHoverDetails, viewport],
+    [chartBars, labels, quietFSignalGuides, showHoverDetails, viewport],
   );
 
   if (!chartBars.length)
@@ -652,43 +807,64 @@ export function V5TradeChart({
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          aria-pressed={showHoverDetails}
-          onClick={toggleHoverDetails}
-          className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-        >
-          Hover details: {showHoverDetails ? "On" : "Off"}
-        </button>
-      </div>
+      {!compact ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            aria-pressed={showHoverDetails}
+            onClick={toggleHoverDetails}
+            className="rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            Hover details: {showHoverDetails ? "On" : "Off"}
+          </button>
+        </div>
+      ) : null}
       <div className="rounded-lg border p-2">
         <p className="px-2 pt-1 text-xs font-medium">
           M15 execution price · Session H/L from 5:00 PM New York
         </p>
-        <EChart option={primaryOption} height={430} onDataZoom={syncViewport} group={chartGroup} />
+        <EChart
+          option={primaryOption}
+          height={compact ? 290 : 430}
+          onDataZoom={syncViewport}
+          group={chartGroup}
+        />
       </div>
       <div className="rounded-lg border p-2">
         <p className="px-2 pt-1 text-xs font-medium">
           M15 price · TV Donchian CCI Hierarchy V5 · Donchian 20 + HH7 + F lane
         </p>
-        <EChart option={donchianOption} height={300} onDataZoom={syncViewport} group={chartGroup} />
+        <EChart
+          option={donchianOption}
+          height={compact ? 220 : 300}
+          onDataZoom={syncViewport}
+          group={chartGroup}
+        />
       </div>
       <div className="rounded-lg border p-1">
         <p className="px-2 pt-1 text-xs font-medium">CCI20 histogram · CCI50.cs magnitude colors</p>
-        <EChart option={cciOption} height={145} onDataZoom={syncViewport} group={chartGroup} />
+        <EChart
+          option={cciOption}
+          height={compact ? 115 : 145}
+          onDataZoom={syncViewport}
+          group={chartGroup}
+        />
       </div>
-      <p className="text-xs text-muted-foreground">
-        All three panes share the same certified M15 bars, bar spacing, time labels, and hidden
-        pan/zoom window. Session high/low resets at 5:00 PM America/New_York. Donchian upper, lower
-        and basis values are the exported previous-20-candle bands. HH7 H/L markers use the recorded
-        completed-candle directional events. The compact F lane inside the Donchian panel uses
-        frozen strategy_f_display values from eligible opportunity snapshots; the selected trade has
-        a white marker border. B0/B1/thrust labels appear only at their recorded availability bars.
-        Use the mouse wheel to scroll the page and Ctrl + wheel to zoom all chart panels. The shared
-        time axis includes one day of empty M15 space after the final certified candle; no future
-        market values are inferred.
-      </p>
+      {!compact ? (
+        <p className="text-xs text-muted-foreground">
+          All three panes share the same certified M15 bars, bar spacing, time labels, and hidden
+          pan/zoom window and horizontal scrollbar. Session high/low resets at 5:00 PM
+          America/New_York. Donchian upper, lower and basis values are the exported
+          previous-20-candle bands. HH7 H/L markers use the recorded completed-candle directional
+          events. Every recorded F signal is projected as a vertical guide through all three panes;
+          the compact F lane uses the same frozen strategy_f_display opportunity snapshots, and the
+          selected trade has a white marker border. B0/B1/thrust labels appear only at their
+          recorded availability bars. Drag any scrollbar to move all chart panels left or right. Use
+          the mouse wheel to scroll the page and Ctrl + wheel to zoom all panels. The shared time
+          axis includes one day of empty M15 space after the final certified candle; no future
+          market values are inferred.
+        </p>
+      ) : null}
     </div>
   );
 }

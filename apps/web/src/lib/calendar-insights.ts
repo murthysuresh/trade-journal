@@ -18,6 +18,28 @@ export function calendarScope(filters: AnalysisFilters, year: number, month: num
   };
 }
 
+export function shiftCalendarMonth(
+  current: { year: number; month: number },
+  delta: number,
+): { year: number; month: number } {
+  const shifted = new Date(Date.UTC(current.year, current.month - 1 + delta, 1));
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1 };
+}
+
+export function latestClosedTradeDay(
+  trades: readonly Pick<RoundTrip, "status" | "closedAt">[],
+  timeZone: string,
+  fallback: string,
+): string {
+  let latest: string | null = null;
+  for (const trade of trades) {
+    if (trade.status === "open" || !trade.closedAt) continue;
+    const date = dayKeyOf(trade.closedAt, timeZone);
+    if (latest === null || date > latest) latest = date;
+  }
+  return latest ?? fallback;
+}
+
 export const closingWeekday = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
 
 /** Calendar cells already contain filtered, timezone-bucketed CLOSED trades. */
